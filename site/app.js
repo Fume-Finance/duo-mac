@@ -1,13 +1,14 @@
-// Duo Mac website: the 3D iPhone Duo in the hero (built from the app's own keyboard layout and
-// colours), the little Mac demo playing on it, and the copy buttons.
+// Duo Mac website: the hero scene (a MacBook and an iPhone Duo showing the same screen, built from
+// the app's own keyboard layout and colours), its little Mac demo, the animated tiles, and the copy
+// buttons.
 (() => {
   const $ = (s, r = document) => r.querySelector(s);
   const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  // #shot&t=8&rx=-20&ry=-18 (or #og…): a still frame for README images and the social card.
+  // #shot&t=8&rx=-16&ry=-10 (or #og…): a still frame for README images and the social card.
   const shot = /^#(shot|og)/.test(location.hash) ? Object.fromEntries(new URLSearchParams(location.hash.slice(1))) : null;
   if (shot) document.documentElement.classList.add('shot', 'og' in shot ? 'og' : 'plain');
 
-  // ───── Keyboard: the app's Space Black MacBook keyboard (US layout) ─────
+  // ───── Keyboard: the app's MacBook keyboard (US layout) ─────
   const svg = (body, fill = false) =>
     `<svg viewBox="0 0 16 16" fill="${fill ? 'currentColor' : 'none'}" stroke="${fill ? 'none' : 'currentColor'}" ` +
     `stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
@@ -37,16 +38,17 @@
     gear: svg('<path stroke-linejoin="round" d="M12.95 6.79L14.62 7L14.62 9L12.95 9.21L12.36 10.65L13.39 11.98L11.98 13.39L10.65 12.36L9.21 12.95L9 14.62L7 14.62L6.79 12.95L5.35 12.36L4.02 13.39L2.61 11.98L3.64 10.65L3.05 9.21L1.38 9L1.38 7L3.05 6.79L3.64 5.35L2.61 4.02L4.02 2.61L5.35 3.64L6.79 3.05L7 1.38L9 1.38L9.21 3.05L10.65 3.64L11.98 2.61L13.39 4.02L12.36 5.35Z"/><circle cx="8" cy="8" r="2.1"/>'),
   };
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+  const char = (k) => `<div class="key" data-k="${k}"><span class="c">${k.toUpperCase()}</span></div>`;
 
-  function keyboardHTML() {
-    const char = (k) => `<div class="key" data-k="${k}"><span class="c">${k.toUpperCase()}</span></div>`;
+  /** The full keyboard. `touchId`: a MacBook's Touch ID key instead of the app's settings key. */
+  function keyboardHTML(touchId = false) {
     const dual = (k, up) => `<div class="key" data-k="${esc(k)}"><span class="dual"><span>${esc(up)}</span><span>${esc(k)}</span></span></div>`;
     const word = (label, w, align, k = '') => `<div class="key word ${align}" style="--w:${w}"${k ? ` data-k="${k}"` : ''}><span class="w">${label}</span></div>`;
     const mod = (label, sym, w, align, k = '') => `<div class="key word ${align}" style="--w:${w}"${k ? ` data-k="${k}"` : ''}><span class="s">${sym}</span><span class="w">${label}</span></div>`;
     const fn = (icon) => `<div class="key fn">${ICONS[icon]}</div>`;
     const rows = [
       [word('esc', 1.5, 'l'), ...['brightDown', 'brightUp', 'mission', 'search', 'mic', 'moon', 'rew', 'play', 'ff', 'mute', 'volDown', 'volUp'].map(fn),
-        `<div class="key power">${ICONS.gear}</div>`],
+        touchId ? '<div class="key power"><i class="tid"></i></div>' : `<div class="key power">${ICONS.gear}</div>`],
       [dual('`', '~'), dual('1', '!'), dual('2', '@'), dual('3', '#'), dual('4', '$'), dual('5', '%'), dual('6', '^'), dual('7', '&'),
         dual('8', '*'), dual('9', '('), dual('0', ')'), dual('-', '_'), dual('=', '+'), word('delete', 1.5, 'r')],
       [word('tab', 1.5, 'l'), ...[...'qwertyuiop'].map(char), dual('[', '{'), dual(']', '}'), dual('\\', '|')],
@@ -61,7 +63,7 @@
     return rows.map((r, i) => `<div class="row${i ? '' : ' fnrow'}">${r.join('')}</div>`).join('');
   }
 
-  // ───── The Mac desktop on the top half ─────
+  // ───── The Mac desktop (the same on both screens) ─────
   const g = (d) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
   const DOCK = [
     ['linear-gradient(#6ec3ff,#1f7cf2)', g('<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>')],
@@ -79,9 +81,7 @@
     <path d="M0 34C30 20 48 46 74 30S96 22 100 24V36C88 30 76 46 56 50S18 30 0 44Z" fill="rgba(255,255,255,.07)"/></svg>`;
   const CURSOR = '<svg viewBox="0 0 17 24" aria-hidden="true"><path d="M1.6 1.6v18.3l4.3-4.2 2.9 6.8 3.2-1.4-2.9-6.6h6.1z" fill="#000" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/></svg>';
   const file = (name, kind = '') => `<div class="file ${kind}"><i></i><span>${name}</span></div>`;
-
-  function macHTML() {
-    return `
+  const macHTML = () => `
       <div class="wall">${WAVES}</div>
       <div class="menubar"><i class="logo"></i><b>Terminal</b><span>Shell</span><span>Edit</span><span>View</span><span>Window</span><span>Help</span></div>
       <div class="ios-status">9:41<i></i></div>
@@ -93,9 +93,7 @@
         <i class="app" style="background:linear-gradient(#f4f4f6,#c9c9ce);color:#6c6c74">${g('<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/>')}</i></div>
       <div class="cursor">${CURSOR}</div>
       <div class="fold-shade"></div>`;
-  }
 
-  // The terminal's text at a given moment of the demo.
   const PROMPT = '<span class="p">~/duo-mac</span> % ';
   const CMD = './build.sh';
   const OUT = [
@@ -110,10 +108,9 @@
     return s + (done ? '\n' + PROMPT + '<i class="caret"></i>' : '');
   }
 
-  // ───── The phone's titanium edges, following the rounded outline ─────
-  function edges(half, side) {
-    const W = 66.9, H = 47.55, R = 5.6, N = 9;
-    const pts = [];
+  // ───── Edges: titanium for the Duo, aluminium for the MacBook, following the rounded outline ─────
+  function edges(half, { W, H, R, t, side, metal }) {
+    const N = 9, pts = [];
     const arc = (cx, cy, a0, a1) => { for (let i = 0; i <= N; i++) { const a = a0 + ((a1 - a0) * i) / N; pts.push([cx + R * Math.cos(a), cy + R * Math.sin(a)]); } };
     if (side === 'lid') { pts.push([0, H]); arc(R, R, Math.PI, 1.5 * Math.PI); arc(W - R, R, 1.5 * Math.PI, 2 * Math.PI); pts.push([W, H]); }
     else { pts.push([0, 0]); arc(R, H - R, Math.PI, 0.5 * Math.PI); arc(W - R, H - R, 0.5 * Math.PI, 0); pts.push([W, 0]); }
@@ -123,24 +120,41 @@
       const [ax, ay] = pts[i], [bx, by] = pts[i + 1];
       const dx = bx - ax, dy = by - ay, len = Math.hypot(dx, dy);
       if (len < 0.01) continue;
-      const tx = dx / len, ty = dy / len;
-      const n = side === 'lid' ? [ty, -tx] : [-ty, tx]; // outward
+      const n = side === 'lid' ? [dy / len, -dx / len] : [-dy / len, dx / len]; // outward
       const lit = Math.max(0, n[0] * light[0] + n[1] * light[1]);
-      const top = Math.round(78 + 70 * lit), mid = Math.round(46 + 40 * lit), bot = Math.round(30 + 22 * lit);
-      html += `<i class="edge" style="width:${(len + 0.08).toFixed(3)}em;` +
+      const [top, mid, bot] = metal === 'al'
+        ? [Math.round(222 + 30 * lit), Math.round(196 + 34 * lit), Math.round(160 + 36 * lit)]
+        : [Math.round(78 + 70 * lit), Math.round(46 + 40 * lit), Math.round(30 + 22 * lit)];
+      html += `<i class="edge" style="width:${(len + 0.08).toFixed(3)}em;height:${t}em;` +
         `transform:translate(${ax.toFixed(3)}em,${ay.toFixed(3)}em) rotateZ(${Math.atan2(dy, dx).toFixed(4)}rad) rotateX(-90deg);` +
-        `background:linear-gradient(rgb(${top},${top},${top + 4}),rgb(${mid},${mid},${mid + 3}) 35%,rgb(${bot},${bot},${bot + 2}))"></i>`;
+        `background:linear-gradient(rgb(${top},${top},${top + 3}),rgb(${mid},${mid},${mid + 3}) 35%,rgb(${bot},${bot},${bot + 2}))"></i>`;
     }
     half.insertAdjacentHTML('beforeend', html);
   }
 
-  // ───── Build ─────
-  const duo = $('#duo'), lid = $('#lid'), mac = $('#mac'), stage = $('#stage');
-  $('#keyboard').innerHTML = keyboardHTML();
-  mac.innerHTML = macHTML();
-  edges(lid, 'lid');
-  edges($('.base'), 'base');
+  // ───── Build the scene ─────
+  const scene = $('#scene'), stage = $('#stage');
+  const lidMac = $('#lid-mac'), lidDuo = $('#lid-duo');
+  const macDuo = $('#mac-duo'), macMirror = $('#mac-mirror');
+  $('#kb-duo').innerHTML = keyboardHTML();
+  $('#kb-mac').innerHTML = keyboardHTML(true);
+  macDuo.innerHTML = macHTML();
+  macMirror.innerHTML = macHTML();
+  edges(lidDuo, { W: 66.9, H: 47.55, R: 5.6, t: 0.95, side: 'lid', metal: 'ti' });
+  edges($('#duo .base'), { W: 66.9, H: 47.55, R: 5.6, t: 0.95, side: 'base', metal: 'ti' });
+  edges(lidMac, { W: 300, H: 198, R: 10, t: 4, side: 'lid', metal: 'al' });
+  edges($('#mb .base'), { W: 300, H: 212, R: 11, t: 8, side: 'base', metal: 'al' });
+  // The Duo's side button, on the right edge of its top half: an iPhone tell.
+  lidDuo.insertAdjacentHTML('beforeend', '<i class="side-btn" style="width:7em;transform:translate(67.05em,9em) rotateZ(90deg) rotateX(-90deg) translateY(.22em)"></i>');
 
+  const screens = [macDuo, macMirror].map((m) => ({
+    m, finder: $('.finder', m), term: $('.term', m), pre: $('.term pre', m), cursor: $('.cursor', m),
+  }));
+  const pad = $('#trackpad'), finger = $('#finger');
+  const keys = {};
+  for (const k of $('#kb-duo').querySelectorAll('[data-k]')) keys[k.dataset.k] = k;
+
+  // The flat iPhone in "Any iPhone": a still frame of the same desktop.
   const mini = $('#mac-mini');
   if (mini) {
     mini.innerHTML = macHTML();
@@ -149,12 +163,7 @@
     $('#keyboard-mini').innerHTML = keyboardHTML();
   }
 
-  const finder = $('.finder', mac), term = $('.term', mac), pre = $('.term pre', mac), cursor = $('.cursor', mac);
-  const pad = $('#trackpad'), finger = $('#finger');
-  const keys = {};
-  for (const k of $('#keyboard').querySelectorAll('[data-k]')) keys[k.dataset.k] = k;
-
-  // ───── The demo: drag a window, click the terminal, type ./build.sh, ⌘K to clear ─────
+  // ───── The demo, typed on the Duo and shown on both screens ─────
   const LOOP = 14.5;
   const PATH = [[0, 46, 31], [1.2, 13.5, 5.6], [1.45, 13.5, 5.6], [2.8, 20.5, 8.1], [3.05, 20.5, 8.1], [4.0, 44, 27], [9.6, 44, 27],
     [10.6, 20.8, 8.1], [10.85, 20.8, 8.1], [12.15, 13.8, 5.6], [12.5, 13.8, 5.6], [LOOP, 46, 31]];
@@ -176,108 +185,123 @@
     return [l[1], l[2], false];
   }
   const within = (spans, t) => spans.some(([a, b]) => t >= a && t < b);
-
-  let lastText = '', lastTyped = -1, lastEnter = false, lastClear = false, moveSeen = -1;
-  const press = (k, ms = 140) => {
-    const el = keys[k];
+  const press = (el, ms = 140) => {
     if (!el) return;
     el.classList.add('pressed');
     setTimeout(() => el.classList.remove('pressed'), ms);
   };
 
+  let lastText = '', lastTyped = -1, lastEnter = false, lastClear = false, moveSeen = -1;
   function demo(t, now) {
     const [x, y, moving] = track(PATH, t);
-    cursor.style.transform = `translate(${x}em, ${y}em)`;
-    const down = within(PRESS, t);
-    cursor.classList.toggle('down', down);
     const [fx, fy] = track(FINDER, t);
-    finder.style.transform = `translate(${fx}em, ${fy}em)`;
-    const ff = within(FINDER_FRONT, t);
-    finder.classList.toggle('front', ff);
-    term.classList.toggle('front', !ff);
+    const down = within(PRESS, t), finderFront = within(FINDER_FRONT, t);
+    const typed = t < TYPE_AT ? 0 : Math.min(CMD.length, Math.floor((t - TYPE_AT) / TYPE_DT) + 1);
+    const entered = t >= ENTER_AT, cleared = t >= CLEAR_AT;
+    const lines = entered ? LINES_AT.filter((a) => t >= a).length : -1;
+    const text = cleared ? PROMPT + '<i class="caret"></i>' : termText(typed, lines, t >= DONE_AT);
+    for (const s of screens) {
+      s.cursor.style.transform = `translate(${x}em, ${y}em)`;
+      s.cursor.classList.toggle('down', down);
+      s.finder.style.transform = `translate(${fx}em, ${fy}em)`;
+      s.finder.classList.toggle('front', finderFront);
+      s.term.classList.toggle('front', !finderFront);
+      if (text !== lastText) s.pre.innerHTML = text;
+    }
+    lastText = text;
 
-    // A fingertip on the trackpad moves the pointer.
+    // A fingertip on the Duo's trackpad moves the pointer; its keys type.
     if (moving || down) moveSeen = now;
     finger.classList.toggle('on', now - moveSeen < 350);
     finger.classList.toggle('press', down);
-    pad.classList.toggle('dragging', down && t < 4 || t > 10.7 && down);
+    pad.classList.toggle('dragging', down && (t < 4 || t > 10.7));
     finger.style.transform = `translate(${(x / 66) * pad.clientWidth}px, ${(y / 47) * pad.clientHeight}px)`;
-
-    // Typing on the keyboard shows up in the terminal.
-    const typed = t < TYPE_AT ? 0 : Math.min(CMD.length, Math.floor((t - TYPE_AT) / TYPE_DT) + 1);
     if (typed !== lastTyped) {
-      if (typed > lastTyped && typed > 0) press(CMD[typed - 1]);
+      if (typed > lastTyped && typed > 0) press(keys[CMD[typed - 1]]);
       lastTyped = typed;
     }
-    const entered = t >= ENTER_AT;
-    if (entered && !lastEnter) press('enter', 180);
+    if (entered && !lastEnter) press(keys.enter, 180);
     lastEnter = entered;
-    const cleared = t >= CLEAR_AT;
-    if (cleared && !lastClear) { press('cmd', 320); setTimeout(() => press('k', 160), 90); }
+    if (cleared && !lastClear) { press(keys.cmd, 320); setTimeout(() => press(keys.k, 160), 90); }
     lastClear = cleared;
-
-    const lines = entered ? LINES_AT.filter((a) => t >= a).length : -1;
-    const text = cleared ? PROMPT + '<i class="caret"></i>' : termText(typed, lines, t >= DONE_AT);
-    if (text !== lastText) { pre.innerHTML = text; lastText = text; }
   }
 
   // ───── 3D: follow the mouse; sway gently when it's still ─────
-  // Resting angle: a three-quarter view (straighter on narrow screens, so it fits).
   const narrow = matchMedia('(max-width: 600px)').matches;
-  const RX0 = -22, RY0 = narrow ? -7 : -16, SWAY = narrow ? 5 : 9;
-  let rx = shot ? +(shot.rx || -20) : RX0, ry = shot ? +(shot.ry || -18) : RY0, trx = rx, tryy = ry, pointerAt = -1e9;
+  const RX0 = -17, RY0 = narrow ? -4 : -8, SWAY = narrow ? 4 : 8;
+  let rx = shot ? +(shot.rx || -16) : RX0, ry = shot ? +(shot.ry || -9) : RY0, trx = rx, tryy = ry, pointerAt = -1e9;
   addEventListener('pointermove', (e) => {
     if (e.pointerType !== 'mouse') return;
-    trx = RX0 - (e.clientY / innerHeight - 0.5) * 16;
-    tryy = RY0 + (e.clientX / innerWidth - 0.5) * 38;
+    trx = RX0 - (e.clientY / innerHeight - 0.5) * 12;
+    tryy = RY0 + (e.clientX / innerWidth - 0.5) * 30;
     pointerAt = performance.now();
   }, { passive: true });
-
   let visible = true;
   new IntersectionObserver(([e]) => { visible = e.isIntersecting; }).observe(stage);
 
-  const OPEN = 12, CLOSED = -86;
-  let start = 0, woke = false, demoStart = 0;
-  if (shot) {
-    lid.style.transform = `rotateX(${OPEN}deg)`;
-    duo.style.transform = `rotateX(${rx}deg) rotateY(${ry}deg)`;
-    const t = +(shot.t || 7.9);
-    requestAnimationFrame(function still(now) { demo(t, now); if (now < 4000) requestAnimationFrame(still); });
-  } else if (reduce) {
-    lid.style.transform = `rotateX(${OPEN}deg)`;
-    demo(9.2, 0);
-    finger.classList.remove('on');
+  const LIDS = [
+    { el: lidMac, open: 16, closed: -88, at: 250, screen: macMirror },
+    { el: lidDuo, open: 12, closed: -86, at: 750, screen: macDuo },
+  ];
+  const setLid = (l, deg) => { l.el.style.transform = `rotateX(${deg.toFixed(2)}deg)`; };
+  let start = 0, demoStart = 0, awake = 0;
+
+  if (shot || reduce) {
+    for (const l of LIDS) setLid(l, l.open);
+    scene.style.transform = `rotateX(${rx}deg) rotateY(${ry}deg)`;
+    const t = shot ? +(shot.t || 7.9) : 9.2;
+    requestAnimationFrame(function still(now) { demo(t, now); if (shot && now < 4000) requestAnimationFrame(still); });
   } else {
-    lid.style.transform = `rotateX(${CLOSED}deg)`;
-    mac.classList.add('asleep');
+    for (const l of LIDS) { setLid(l, l.closed); l.screen.classList.add('asleep'); }
+    demo(0, 0);
+    requestAnimationFrame(function frame(now) {
+      requestAnimationFrame(frame);
+      if (!visible) return;
+      if (!start) start = now;
+      if (now - pointerAt > 2500) {
+        const s = now / 1000;
+        tryy = RY0 + Math.sin(s * 0.42) * SWAY;
+        trx = RX0 + Math.sin(s * 0.31) * 2;
+      }
+      rx += (trx - rx) * 0.06;
+      ry += (tryy - ry) * 0.06;
+      scene.style.transform = `rotateX(${rx.toFixed(3)}deg) rotateY(${ry.toFixed(3)}deg)`;
+      // Open the lids, like opening a laptop, then wake the screens.
+      if (awake < LIDS.length) {
+        awake = 0;
+        for (const l of LIDS) {
+          const p = Math.min(1, Math.max(0, (now - start - l.at) / 1400));
+          setLid(l, l.closed + (l.open - l.closed) * (1 - Math.pow(1 - p, 3)));
+          if (p > 0.6) l.screen.classList.remove('asleep');
+          if (p >= 1) awake++;
+        }
+        if (awake === LIDS.length) demoStart = now + 300;
+      }
+      if (awake === LIDS.length && now > demoStart) demo(((now - demoStart) / 1000) % LOOP, now);
+    });
   }
 
-  function frame(now) {
-    requestAnimationFrame(frame);
-    if (!visible) return;
-    if (!start) start = now;
-    if (now - pointerAt > 2500) {
-      const s = now / 1000;
-      tryy = RY0 + Math.sin(s * 0.42) * SWAY;
-      trx = RX0 + Math.sin(s * 0.31) * 2.5;
+  // ───── Tiles: a little keyboard that types ─────
+  const kb = $('#mini-kb');
+  if (kb) {
+    const rows = ['qwertyuiop', 'asdfghjkl', 'zxcvbnm'];
+    kb.innerHTML = rows.map((r, i) => `<div class="row" style="padding-left:calc(var(--u) * ${i * 0.5})">${[...r].map(char).join('')}</div>`).join('') +
+      '<div class="row" style="padding-left:calc(var(--u) * 2.2)"><div class="key sp" data-k=" "></div></div>';
+    kb.style.display = 'flex';
+    kb.style.flexDirection = 'column';
+    kb.style.gap = 'calc(var(--u) * .12)';
+    const mk = {};
+    for (const k of kb.querySelectorAll('[data-k]')) mk[k.dataset.k] = k;
+    const text = 'hello from my duo ';
+    let i = 0, on = false;
+    new IntersectionObserver(([e]) => { on = e.isIntersecting; }).observe(kb);
+    if (!reduce) {
+      setInterval(() => {
+        if (!on) return;
+        press(mk[text[i % text.length]], 150);
+        i++;
+      }, 190);
     }
-    rx += (trx - rx) * 0.06;
-    ry += (tryy - ry) * 0.06;
-    duo.style.transform = `rotateX(${rx.toFixed(3)}deg) rotateY(${ry.toFixed(3)}deg)`;
-    if (reduce) return;
-
-    // Unfold once, like opening a laptop, then wake the Mac.
-    const p = Math.min(1, Math.max(0, (now - start - 350) / 1500));
-    if (p < 1 || !woke) {
-      const e = 1 - Math.pow(1 - p, 3);
-      lid.style.transform = `rotateX(${(CLOSED + (OPEN - CLOSED) * e).toFixed(2)}deg)`;
-      if (p > 0.6 && !woke) { woke = true; mac.classList.remove('asleep'); demoStart = now + 500; }
-    }
-    if (woke && now > demoStart) demo(((now - demoStart) / 1000) % LOOP, now);
-  }
-  if (!shot) {
-    if (!reduce) demo(0, 0);
-    requestAnimationFrame(frame);
   }
 
   // ───── Copy for your agent ─────

@@ -12,7 +12,7 @@ Free and open source. Fold your iPhone like a laptop: your Mac's screen on top, 
   <a href="LICENSE">MIT License</a>
 </p>
 
-<p align="center"><img src="docs/images/hero.png" width="760" alt="An iPhone Duo folded like a laptop: a Mac desktop on the top half, a MacBook keyboard and trackpad on the bottom half"></p>
+<p align="center"><img src="docs/images/hero.png" width="760" alt="A MacBook and an iPhone Duo side by side, showing the same screen: the Duo folded like a laptop, its keyboard and trackpad controlling the Mac"></p>
 
 **Give this to your agent** (Claude Code, Codex, Cursor…) and it installs Duo Mac for you:
 
@@ -143,7 +143,7 @@ Duo Mac lives in the **menu bar**. Its panel shows the connected iPhone and the 
 - **Launcher** (`launcher/`): `Duo Mac.app` is a tiny stub that starts the helper from `~/Library/Application Support/Duo Mac/`. macOS ties permissions to an app's signature, and without a developer certificate every rebuild would lose them. With the stub, the helper can be rebuilt freely and permissions stay.
 - **iPhone app** (`web/`, plain JavaScript modules): canvas renderer, MacBook keyboard (ANSI/ISO, labels from the Mac's layout), gesture recognizer, WebAudio key sounds, visual settings, and the Add to Home Screen guide. Served by the helper; nothing is hosted online.
 - **Security** (`Auth.swift`, `Tailscale.swift`): WebAuthn (ES256) verified on the Mac with CryptoKit; PINs stored as PBKDF2-SHA256 hashes; `devices.json` and `config.json` readable only by you. The helper runs `tailscale serve` itself and turns it off when it quits.
-- **Website** (`site/`): the page at [duo-mac.vercel.app](https://duo-mac.vercel.app), static HTML, CSS and JavaScript. The 3D iPhone Duo is plain CSS 3D transforms.
+- **Website** (`site/`): the page at [duo-mac.vercel.app](https://duo-mac.vercel.app), static HTML, CSS and JavaScript. The 3D MacBook and iPhone Duo are plain CSS 3D transforms.
 
 ## Development
 
@@ -164,7 +164,7 @@ Then open the printed URL and pair with a PIN. `"build/Duo Mac" --selftest-auth`
 
 **Icon:** `design/icon.svg` → `rsvg-convert -w 1024 design/icon.svg -o design/icon.png`, then `swift tools/make-icons.swift . && ./build.sh --app`. Earlier icons are kept in `design/old-icon-duo-laptop/` and `design/old-icon-laptop/`.
 
-**Website:** `site/` deploys as a static site (`vercel deploy site`). Add `#shot` to the URL for a still frame of the 3D Duo, `#og` for the social card.
+**Website:** `site/` deploys as a static site (`vercel deploy site`). Add `#shot` to the URL for a still frame of the hero, `#og` for the social card.
 
 Ideas for later: H.264 video through WebCodecs (sharper, much less data on mobile networks), and using the fold angle once Apple exposes it to web apps.
 
