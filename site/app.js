@@ -108,7 +108,7 @@
     return s + (done ? '\n' + PROMPT + '<i class="caret"></i>' : '');
   }
 
-  // ───── Edges: titanium for the Duo, aluminium for the MacBook, following the rounded outline ─────
+  // ───── Edges: graphite titanium for the Duo, space grey aluminium for the MacBook, following the rounded outline ─────
   function edges(half, { W, H, R, t, side, metal }) {
     const N = 9, pts = [];
     const arc = (cx, cy, a0, a1) => { for (let i = 0; i <= N; i++) { const a = a0 + ((a1 - a0) * i) / N; pts.push([cx + R * Math.cos(a), cy + R * Math.sin(a)]); } };
@@ -122,9 +122,9 @@
       if (len < 0.01) continue;
       const n = side === 'lid' ? [dy / len, -dx / len] : [-dy / len, dx / len]; // outward
       const lit = Math.max(0, n[0] * light[0] + n[1] * light[1]);
-      const [top, mid, bot] = metal === 'al'
-        ? [Math.round(222 + 30 * lit), Math.round(196 + 34 * lit), Math.round(160 + 36 * lit)]
-        : [Math.round(78 + 70 * lit), Math.round(46 + 40 * lit), Math.round(30 + 22 * lit)];
+      const [top, mid, bot] = metal === 'al' // space grey aluminium : graphite titanium
+        ? [Math.round(124 + 56 * lit), Math.round(92 + 42 * lit), Math.round(66 + 28 * lit)]
+        : [Math.round(138 + 62 * lit), Math.round(96 + 42 * lit), Math.round(70 + 26 * lit)];
       html += `<i class="edge" style="width:${(len + 0.08).toFixed(3)}em;height:${t}em;` +
         `transform:translate(${ax.toFixed(3)}em,${ay.toFixed(3)}em) rotateZ(${Math.atan2(dy, dx).toFixed(4)}rad) rotateX(-90deg);` +
         `background:linear-gradient(rgb(${top},${top},${top + 3}),rgb(${mid},${mid},${mid + 3}) 35%,rgb(${bot},${bot},${bot + 2}))"></i>`;

@@ -123,8 +123,8 @@ h1 {
   color: #4a4a52;
 }
 .legend > span { display: inline-flex; align-items: center; gap: 7px; }
-.legend .dot { width: 9px; height: 9px; border-radius: 50%; background: #c8c9cd; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .15); }
-.legend .dot.duo { background: #2a2b2e; }
+.legend .dot { width: 9px; height: 9px; border-radius: 50%; background: #66686d; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .15); }
+.legend .dot.duo { background: #46484d; }
 .legend .same { position: relative; padding: 0 44px; color: #8a8a93; }
 .legend .same::before, .legend .same::after { content: ''; position: absolute; top: 50%; width: 34px; border-top: 1.5px dashed #b9b9c1; }
 .legend .same::before { left: 0; }
@@ -215,18 +215,18 @@ h1 {
   transform: translate3d(calc(var(--sw) * -.15), 0, calc(var(--sw) * -.08));
 }
 .mb .lid .face { padding: 6em 6em 9em; border-radius: 10em 10em 0 0; background: #0b0b0c; }
-.mb .lid .back { border-radius: 10em 10em 0 0; background: linear-gradient(160deg, #eef0f2, #cfd1d5); }
+.mb .lid .back { border-radius: 10em 10em 0 0; background: linear-gradient(160deg, #6c6e73, #46484c); }
 .mb .bars { position: relative; display: flex; justify-content: center; width: 100%; height: 100%; overflow: hidden; border-radius: 4em 4em 0 0; background: #000; }
 .mb .mirror { flex: none; width: 66.9em; height: 47.55em; font-size: 3.849em; }
 .mb .mirror .mac { border-radius: 0; }
 .mb .mirror .ios-status, .mb .mirror .fold-shade { display: none; }
 .mb .notch { position: absolute; left: 50%; top: 6em; width: 30em; height: 5.4em; margin-left: -15em; border-radius: 0 0 1.8em 1.8em; background: #0b0b0c; z-index: 3; }
 .mb .notch i { position: absolute; left: 50%; top: 1.6em; width: 2.2em; height: 2.2em; margin-left: -1.1em; border-radius: 50%; background: #16161c; }
-.mb .base .face { border-radius: 0 0 11em 11em; background: linear-gradient(180deg, #e4e5e8, #d5d6d9); }
-.mb .hinge-bar { position: absolute; left: 22em; right: 22em; top: 0; height: 5.5em; border-radius: 0 0 2.2em 2.2em; background: linear-gradient(#18181b, #3c3d41); }
-.mb .keyboard { --u: 16.5em; left: 17.7em; right: 17.7em; top: 13em; background: rgba(0, 0, 0, .06); box-shadow: inset 0 .25em .6em rgba(0, 0, 0, .12); }
+.mb .base .face { border-radius: 0 0 11em 11em; background: linear-gradient(180deg, #606267, #505256); }
+.mb .hinge-bar { position: absolute; left: 22em; right: 22em; top: 0; height: 5.5em; border-radius: 0 0 2.2em 2.2em; background: linear-gradient(#1b1c1f, #303135); }
+.mb .keyboard { --u: 16.5em; left: 17.7em; right: 17.7em; top: 13em; background: rgba(0, 0, 0, .22); box-shadow: inset 0 .25em .6em rgba(0, 0, 0, .25); }
 .mb .key { background: linear-gradient(180deg, #232326, #151517); box-shadow: inset 0 .25em 0 rgba(255, 255, 255, .06), 0 .3em .4em rgba(0, 0, 0, .25); }
-.mb .trackpad { left: 76em; right: 76em; top: 127em; bottom: 9em; border-radius: 5.5em; background: linear-gradient(#dcdde0, #d0d1d4); box-shadow: inset 0 0 0 .35em rgba(0, 0, 0, .05), inset 0 .3em .9em rgba(0, 0, 0, .09); }
+.mb .trackpad { left: 76em; right: 76em; top: 127em; bottom: 9em; border-radius: 5.5em; background: linear-gradient(#5b5d62, #515358); box-shadow: inset 0 0 0 .35em rgba(255, 255, 255, .06), inset 0 .3em .9em rgba(0, 0, 0, .18); }
 .key .tid { width: 62%; height: 62%; border-radius: 50%; background: radial-gradient(circle at 40% 35%, #2a2a2e, #101012); box-shadow: inset 0 0 0 .1em rgba(255, 255, 255, .22); }
 
 /* iPhone Duo (space black titanium), a bit larger than life so it reads next to the Mac */
@@ -235,13 +235,15 @@ h1 {
   font-size: calc(var(--sw) * .00178 * 1.82 * 1.32);
   transform: translate3d(calc(var(--sw) * .265), 0, calc(var(--sw) * .1)) rotateY(-18deg);
 }
-.duo .lid .face { padding: .55em .55em 0; border-radius: 5.6em 5.6em 0 0; background: #050506; }
-.duo .lid .back { border-radius: 5.6em 5.6em 0 0; background: radial-gradient(120% 90% at 30% 20%, #4a4b50, #26272a 60%, #1b1c1e); }
-.duo .base .face { border: .55em solid #050506; border-top: 0; border-radius: 0 0 5.6em 5.6em; background: linear-gradient(180deg, #2b2c2f, #1b1c1e); }
+.duo .lid .face { padding: .5em .5em 0; border-radius: 5.6em 5.6em 0 0; background: #151618; }
+.duo .lid .back { border-radius: 5.6em 5.6em 0 0; background: radial-gradient(120% 90% at 30% 20%, #6e7075, #4a4c50 60%, #3c3e42); }
+.duo .base .face { border: .5em solid #151618; border-top: 0; border-radius: 0 0 5.6em 5.6em; background: linear-gradient(180deg, #4a4c51, #3b3d41); }
+.duo .keyboard, .fp-deck .keyboard { background: #1f2023; }
+.duo .trackpad, .fp-deck .trackpad { background: #404246; box-shadow: inset 0 0 0 .1em rgba(255, 255, 255, .1), inset 0 .1em .6em rgba(0, 0, 0, .2); }
 .duo .hinge-shade { position: absolute; left: 0; right: 0; top: 0; height: .9em; background: linear-gradient(rgba(0, 0, 0, .7), transparent); z-index: 1; }
 .duo .keyboard { --u: 3.95em; left: 1.2em; right: 1.2em; top: 1.45em; }
 .duo .trackpad { left: 9em; right: 9em; top: 28.4em; bottom: 1.6em; }
-.side-btn { position: absolute; top: 0; left: 0; height: .5em; transform-origin: 0 0; border-radius: .25em; background: linear-gradient(#6b6c72, #3a3b40); }
+.side-btn { position: absolute; top: 0; left: 0; height: .5em; transform-origin: 0 0; border-radius: .25em; background: linear-gradient(#8e9095, #56585c); }
 
 /* A Mac desktop: on both screens, the same */
 .mac {
@@ -465,7 +467,7 @@ h2 { margin: 0; font-size: clamp(28px, 4vw, 44px); line-height: 1.1; letter-spac
 .tile h3 { margin: 16px 8px 2px; font-size: 17px; letter-spacing: -.01em; }
 .tile p { margin: 0 8px; font-size: 14.5px; color: var(--muted); }
 .viz { position: relative; display: grid; place-items: center; height: 190px; overflow: hidden; border-radius: 14px; background: #f3f3f6; }
-.viz.dark { background: linear-gradient(180deg, #2b2c2f, #1b1c1e); }
+.viz.dark { background: linear-gradient(180deg, #4a4c51, #3b3d41); }
 #security { scroll-margin-top: 90px; }
 
 .mini-kb { --u: 34px; position: relative; inset: auto; width: max-content; }
@@ -474,7 +476,7 @@ h2 { margin: 0; font-size: clamp(28px, 4vw, 44px); line-height: 1.1; letter-spac
 @media (max-width: 1000px) { .mini-kb { --u: 28px; } }
 @media (max-width: 600px) { .mini-kb { --u: 25px; } }
 
-.pad-viz { position: relative; width: 74%; height: 70%; overflow: hidden; border-radius: 16px; background: #252629; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .09); }
+.pad-viz { position: relative; width: 74%; height: 70%; overflow: hidden; border-radius: 16px; background: #404246; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .1); }
 .pad-viz .f { position: absolute; top: 62%; width: 34px; height: 34px; margin: -17px 0 0 -17px; border-radius: 50%; background: radial-gradient(circle, rgba(255, 255, 255, .55), rgba(255, 255, 255, .12) 60%, transparent 72%); animation: scroll2 2.6s ease-in-out infinite; }
 .pad-viz .f1 { left: 42%; }
 .pad-viz .f2 { left: 58%; }
@@ -520,12 +522,12 @@ h2 { margin: 0; font-size: clamp(28px, 4vw, 44px); line-height: 1.1; letter-spac
   aspect-ratio: 9 / 19.5;
   padding: 9px;
   border-radius: 44px;
-  background: #0a0a0b;
-  box-shadow: 0 0 0 2px #5b5c61, 0 0 0 3.5px #2a2b2e, 0 30px 60px -20px rgba(0, 0, 0, .45);
+  background: #151618;
+  box-shadow: 0 0 0 2px #7a7c81, 0 0 0 3.5px #45474b, 0 30px 60px -20px rgba(0, 0, 0, .45);
 }
 .fp-screen { position: relative; display: flex; flex-direction: column; width: 100%; height: 100%; overflow: hidden; border-radius: 36px; background: #000; font-size: calc((var(--pw) - 18px) / 66.9); }
 .fp-screen .mac { flex: 0 0 50%; border-radius: 0; }
-.fp-deck { position: relative; flex: 1; background: linear-gradient(180deg, #2b2c2f, #1b1c1e); }
+.fp-deck { position: relative; flex: 1; background: linear-gradient(180deg, #4a4c51, #3b3d41); }
 .fp-deck .keyboard { --u: 3.95em; top: 1.6em; left: 1.4em; right: 1.4em; }
 .fp-deck .trackpad { top: 30em; left: 8em; right: 8em; bottom: 5em; }
 .mac.mini .menubar { height: 5em; padding-top: 3.2em; padding-left: 2em; }
