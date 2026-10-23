@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 640" width="1240" height="640">
+<defs>
+ <filter id="sh" x="-20%" y="-20%" width="140%" height="150%"><feGaussianBlur in="SourceAlpha" stdDeviation="0.9"/><feOffset dy="0.7"/><feComponentTransfer><feFuncA type="linear" slope="0.45"/></feComponentTransfer><feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+ <filter id="sh2" x="-30%" y="-30%" width="160%" height="170%"><feGaussianBlur in="SourceAlpha" stdDeviation="0.7"/><feOffset dy="0.6"/><feComponentTransfer><feFuncA type="linear" slope="0.35"/></feComponentTransfer><feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+</defs>
+<rect width="1240" height="640" fill="#f5f5f7"/>
+<g transform="translate(40 70)">
+ <defs><linearGradient id="bg40" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3a3a3d"/><stop offset="1" stop-color="#0d0d0e"/></linearGradient></defs>
+ <rect width="380" height="380" rx="85" fill="url(#bg40)" stroke="#d2d2d7" stroke-width="0"/>
+ <g transform="translate(30 88) scale(5)">
+  <g filter="url(#sh)"><rect x="8.5" y="2.5" width="47" height="31.5" rx="3.2" fill="#ffffff"/><rect x="5" y="34.9" width="54" height="3.8" rx="1.9" fill="#ffffff"/></g>
+  <g filter="url(#sh2)"><path d="M23.5 24.9V12a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2V24.9z" fill="#1c1c1e"/><rect x="21" y="25.6" width="22" height="2.7" rx="1.35" fill="#1c1c1e"/></g>
+ </g>
+ <text x="190" y="430" text-anchor="middle" font-family="-apple-system, Helvetica" font-size="22" fill="#6e6e73">Black</text>
+</g>
+<g transform="translate(460 70)">
+ <defs><linearGradient id="bg460" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#e9e9ec"/></linearGradient></defs>
+ <rect width="380" height="380" rx="85" fill="url(#bg460)" stroke="#d2d2d7" stroke-width="2"/>
+ <g transform="translate(30 88) scale(5)">
+  <g filter="url(#sh)"><rect x="8.5" y="2.5" width="47" height="31.5" rx="3.2" fill="#1c1c1e"/><rect x="5" y="34.9" width="54" height="3.8" rx="1.9" fill="#1c1c1e"/></g>
+  <g filter="url(#sh2)"><path d="M23.5 24.9V12a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2V24.9z" fill="#ffffff"/><rect x="21" y="25.6" width="22" height="2.7" rx="1.35" fill="#ffffff"/></g>
+ </g>
+ <text x="190" y="430" text-anchor="middle" font-family="-apple-system, Helvetica" font-size="22" fill="#6e6e73">White</text>
+</g>
+<g transform="translate(880 120)">
+ <g transform="scale(5.2)"><rect x="8.5" y="2.5" width="47" height="31.5" rx="3.2" fill="#000"/><rect x="5" y="34.9" width="54" height="3.8" rx="1.9" fill="#000"/><path d="M23.5 24.9V12a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2V24.9z" fill="#f5f5f7"/><rect x="21" y="25.6" width="22" height="2.7" rx="1.35" fill="#f5f5f7"/></g>
+ <g transform="translate(0 280)">
+  <rect width="330" height="44" rx="10" fill="#e3e3e8"/>
+  <g transform="translate(22 11) scale(0.55)"><rect x="8.5" y="2.5" width="47" height="31.5" rx="3.2" fill="#1d1d1f"/><rect x="5" y="34.9" width="54" height="3.8" rx="1.9" fill="#1d1d1f"/><path d="M23.5 24.9V12a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2V24.9z" fill="#e3e3e8"/><rect x="21" y="25.6" width="22" height="2.7" rx="1.35" fill="#e3e3e8"/></g>
+  <g transform="translate(74 11) scale(0.55)"><rect x="8.5" y="2.5" width="47" height="31.5" rx="3.2" fill="#30a14e"/><rect x="5" y="34.9" width="54" height="3.8" rx="1.9" fill="#30a14e"/><path d="M23.5 24.9V12a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2V24.9z" fill="#e3e3e8"/><rect x="21" y="25.6" width="22" height="2.7" rx="1.35" fill="#e3e3e8"/></g>
+  <text x="128" y="29" font-family="-apple-system, Helvetica" font-size="17" fill="#1d1d1f">Fri 23 Oct 21:10</text>
+ </g>
+ <text x="165" y="380" text-anchor="middle" font-family="-apple-system, Helvetica" font-size="22" fill="#6e6e73">Menu bar</text>
+</g>
+</svg>

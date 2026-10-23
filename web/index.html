@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Duo Mac">
+<meta name="theme-color" content="#000000">
+<meta name="format-detection" content="telephone=no">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/png" href="icon-180.png">
+<title>Duo Mac</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div id="app" class="theme-spaceblack">
+
+  <section id="lid">
+    <div id="bezel-notch"><i></i></div>
+    <div id="screen-area">
+      <div id="screen-wrap">
+        <canvas id="screen" width="16" height="10"></canvas>
+        <div id="notch"><i id="cam"></i></div>
+      </div>
+      <div id="banner" hidden></div>
+      <div id="stats" hidden></div>
+      <div id="overlay" class="off">
+        <div class="boot">
+          <svg class="logo" viewBox="0 0 64 44" aria-hidden="true">
+            <rect x="9" y="3" width="46" height="30" rx="3" fill="none" stroke="currentColor" stroke-width="2.4"/>
+            <rect x="28" y="3" width="8" height="2.6" rx="1" fill="currentColor"/>
+            <path d="M3 36h58l-2.5 4.2a2 2 0 0 1-1.7 1H7.2a2 2 0 0 1-1.7-1z" fill="currentColor"/>
+          </svg>
+          <div class="bar"><i></i></div>
+          <div class="msg">Tap to power on</div>
+          <div class="sub"></div>
+          <div class="match" hidden></div>
+          <form class="field" hidden autocomplete="off">
+            <input type="text" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="go" aria-label="Code">
+            <button type="submit">OK</button>
+          </form>
+          <div class="acts"></div>
+          <button class="retry" type="button" hidden>Try again</button>
+        </div>
+      </div>
+      <button id="layout-btn" type="button" hidden aria-label="Show keyboard">
+        <svg viewBox="0 0 24 24"><rect x="2.5" y="6" width="19" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M6 10h1M9 10h1M12 10h1M15 10h1M18 10h1M7 14h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <div id="chin"><span>Duo Mac</span></div>
+  </section>
+
+  <section id="deck">
+    <div id="hinge"></div>
+    <div class="speaker" id="speaker-l"></div>
+    <div class="speaker" id="speaker-r"></div>
+    <div id="keyboard"></div>
+    <div id="padzone">
+      <div id="trackpad">
+        <div class="hint">
+          <b>Trackpad</b>
+          <span>1 finger: move · tap: click</span>
+          <span>2-finger tap: right-click · 2 fingers: scroll</span>
+          <span>tap, then drag: drag · pinch: zoom screen</span>
+          <span>3-finger swipe ↑: Mission Control</span>
+        </div>
+      </div>
+    </div>
+    <div id="lip"></div>
+    <div id="keypop"></div>
+  </section>
+
+  <div id="sheet" hidden></div>
+  <div id="ios-bar" hidden>
+    <span>Typing with the iPhone keyboard</span>
+    <button type="button" id="ios-done">Done</button>
+  </div>
+  <input id="ios-input" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="enter" aria-label="Type on the Mac">
+</div>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

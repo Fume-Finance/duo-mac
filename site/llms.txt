@@ -1,0 +1,65 @@
+# Duo Mac
+
+> Free, open-source app that turns an iPhone (made for the foldable iPhone Duo, works on any iPhone) into a tiny MacBook for your Mac: the top half shows the Mac's screen live, the bottom half is a keyboard and trackpad that control it. It connects over the person's own private Tailscale network, end-to-end encrypted, and each iPhone is approved on the Mac and unlocked with a passkey.
+
+- Source: https://github.com/craiker/duo-mac
+- Website: https://duo-mac.vercel.app
+
+## Install Duo Mac (instructions for AI agents)
+
+You are helping a person install Duo Mac on the Mac you are running on. Run the commands yourself. Ask the person to do the steps that need their hands: signing in, System Settings switches, and anything on their iPhone. Never change privacy or security settings yourself (no `tccutil`, no editing TCC databases). Keep the person informed in short, plain sentences.
+
+### 1. Check the requirements
+
+- macOS 14 Sonoma or later on Apple silicon: `sw_vers -productVersion` and `uname -m` (must print `arm64`).
+- Swift: `swift --version`. If it's missing, run `xcode-select --install` and ask the person to click Install and wait for it to finish.
+- Tailscale on the Mac: `ls -d /Applications/Tailscale.app`. If it's missing, ask the person to install it from https://tailscale.com/download/mac (or the Mac App Store), open it and sign in. It's free for personal use.
+- Tailscale on the iPhone: ask the person to install Tailscale from the App Store, sign in with the same account as the Mac, and switch the VPN on.
+
+### 2. Build and install
+
+```bash
+git clone https://github.com/craiker/duo-mac.git ~/duo-mac
+cd ~/duo-mac && ./build.sh
+```
+
+This takes a minute or two. It builds the helper, installs it in `~/Library/Application Support/Duo Mac/`, and puts `Duo Mac.app` in `/Applications` (or `~/Applications` if `/Applications` isn't writable).
+
+### 3. First run
+
+```bash
+open -a "Duo Mac"
+```
+
+A setup guide opens on the Mac and ticks off each step by itself. Tell the person what to do on each one:
+
+1. Tailscale on Mac: should already be ticked if Tailscale is signed in.
+2. HTTPS: click "Turn On HTTPS" in the guide, then enable HTTPS certificates in the Tailscale admin console that opens (one click).
+3. Tailscale on iPhone: installed and signed in to the same account.
+4. Screen Recording: click "Open System Settings", switch on Duo Mac, then click "Relaunch" in the guide.
+5. Accessibility: click "Open System Settings" and switch on Duo Mac.
+6. Pair iPhone: see below.
+
+### 4. Pair the iPhone
+
+1. Scan the QR code shown in the guide (or menu bar icon → Settings… → Add iPhone) with the iPhone's Camera.
+2. Add the page to the Home Screen. The page shows the exact taps for Safari or Chrome.
+3. Open Duo Mac from the Home Screen and tap "Pair this iPhone".
+4. On the Mac, check that the 4-digit code matches and click "Allow".
+5. On the iPhone, set up the passkey (and optionally a backup PIN).
+
+On an iPhone Duo, half-fold it like a laptop. On any other iPhone, the screen, keyboard and trackpad are stacked on one screen.
+
+### Check that it's running
+
+- `pgrep -x "Duo Mac"` prints a process id.
+- `tail ~/Library/Logs/Duo\ Mac/helper.log` shows a line like `Tailscale: ready · <name>.ts.net · serving · reachable`.
+
+### Troubleshooting
+
+- The switch is already on in System Settings but the guide still asks for it: macOS kept an entry for an older build. Ask the person to select Duo Mac in that list, click the minus button, then add it again (or click "Open System Settings" in the guide again).
+- The iPhone can't open the link: Tailscale must be connected on the iPhone (VPN on), signed in to the same account as the Mac, and Duo Mac must be running on the Mac.
+- Black screen on the iPhone: Screen Recording isn't allowed yet, or Duo Mac needs a relaunch after allowing it.
+- Keyboard and trackpad do nothing: Accessibility isn't allowed yet.
+- Updating later: `cd ~/duo-mac && git pull && ./build.sh` (permissions are kept).
+- To work while away, the Mac must stay awake: in the Duo Mac menu bar panel, turn on "Stay reachable while away" and keep it plugged in.

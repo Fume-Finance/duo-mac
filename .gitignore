@@ -1,0 +1,11 @@
+.DS_Store
+# Build output
+build/
+helper/.build/
+helper/.swiftpm/
+*.app/
+# Local video production (the finished intro lives in site/assets/)
+video/
+# Vercel
+site/.vercel/
+node_modules/

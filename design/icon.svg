@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+<!-- Duo Mac: a MacBook with a folded iPhone Duo in front of its screen. Full-bleed square: iOS and
+     tools/make-icons.swift round the corners. -->
+<defs>
+ <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3a3a3d"/><stop offset="1" stop-color="#0d0d0e"/></linearGradient>
+ <filter id="sh" x="-20%" y="-20%" width="140%" height="150%"><feGaussianBlur in="SourceAlpha" stdDeviation="0.9"/><feOffset dy="0.7"/><feComponentTransfer><feFuncA type="linear" slope="0.45"/></feComponentTransfer><feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+ <filter id="sh2" x="-30%" y="-30%" width="160%" height="170%"><feGaussianBlur in="SourceAlpha" stdDeviation="0.7"/><feOffset dy="0.6"/><feComponentTransfer><feFuncA type="linear" slope="0.35"/></feComponentTransfer><feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+</defs>
+<rect width="1024" height="1024" fill="url(#bg)"/>
+<g transform="translate(80.8 237) scale(13.47)">
+ <g filter="url(#sh)"><rect x="8.5" y="2.5" width="47" height="31.5" rx="3.2" fill="#ffffff"/><rect x="5" y="34.9" width="54" height="3.8" rx="1.9" fill="#ffffff"/></g>
+ <g filter="url(#sh2)"><path d="M23.5 24.9V12a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2V24.9z" fill="#1c1c1e"/><rect x="21" y="25.6" width="22" height="2.7" rx="1.35" fill="#1c1c1e"/></g>
+</g>
+</svg>
