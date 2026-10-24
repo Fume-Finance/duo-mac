@@ -62,6 +62,8 @@ export class Trackpad {
   }
 
   down(e) {
+    if (this.cb.enabled && !this.cb.enabled()) return; // the screen as a trackpad, only when chosen
+    if (e.target.closest('button, #overlay:not(.hidden)')) return;
     e.preventDefault();
     try { this.zone.setPointerCapture(e.pointerId); } catch {}
     const now = performance.now();

@@ -92,7 +92,7 @@ Duo Mac lives in the **menu bar**. Its panel shows the connected iPhone and the 
 | pinch | zoom the iPhone's screen (it follows the pointer) |
 | 3- or 4-finger swipe ↑ / ↓ / ← → | Mission Control / App Exposé / switch Spaces |
 
-**Screen** (top half, or the whole phone in *Screen only*): tap to click exactly there, drag to drag, 2 fingers to scroll (with momentum), pinch to zoom, 2-finger tap to right-click, 3 or 4 fingers to swipe for Mission Control, App Exposé and Spaces. *Screen only* fills the whole phone, edge to edge, and reshapes when you rotate it. In *Screen only*, tapping a text field on the Mac brings up the iPhone's own keyboard.
+**Screen** (top half, or the whole phone in *Screen only*): tap to click exactly there, drag to drag, 2 fingers to scroll (with momentum), pinch to zoom, 2-finger tap to right-click, 3 or 4 fingers to swipe for Mission Control, App Exposé and Spaces. *Screen only* fills the whole phone, edge to edge, and reshapes when you rotate it. In *Screen only*, tapping a text field on the Mac brings up the iPhone's own keyboard, and you can choose to use the whole screen as a trackpad instead (Settings › Display › *Touching the screen*): slide to move the pointer, tap to click, with all the trackpad gestures.
 
 <img src="docs/images/iphone-settings.png" width="330" align="right" alt="Duo Mac settings on the iPhone: a full-screen page with visual options">
 
@@ -104,7 +104,7 @@ Duo Mac lives in the **menu bar**. Its panel shows the connected iPhone and the 
 - The **⚙︎ key** (top right, where Touch ID sits on a MacBook) opens the settings.
 - A Bluetooth keyboard paired with the iPhone types on the Mac too.
 
-**Settings** (⚙︎ key): tracking and scroll speed, natural scrolling, touch screen, key sounds and haptics, F-key mode, quality (Fast / Balanced / Sharp), Mac screen (Fill with the Duo display, or Mirror as is), desktop size, layout (Laptop: keyboard and trackpad; Trackpad: just a big trackpad; Screen only), Space Black or Silver (Laptop), fold position, top edge (start below the clock, or Full screen), notch, stats.
+**Settings** (⚙︎ key): tracking and scroll speed, natural scrolling, key sounds and haptics, F-key mode, quality (Fast / Balanced / Sharp), Mac screen (Fill with the Duo display, or Mirror as is), desktop size, layout (Laptop: keyboard and trackpad; Trackpad: just a big trackpad; Screen only, touched directly or as a trackpad), touch screen, Space Black or Silver (Laptop), fold position, top edge (start below the clock, or Full screen), notch, stats.
 
 **Duo display** (on by default): instead of squeezing your 16:10 screen into the phone's half, the Mac gets an extra display shaped exactly like it, and the Mac's own screen mirrors it. *Desktop size* picks how roomy it is: Larger text, Default or More space. It goes away a minute after the iPhone disconnects (or right away with *Mirror as is*, or when you quit the app).
 

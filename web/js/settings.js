@@ -5,7 +5,8 @@ export const DEFAULTS = {
   tracking: 1,          // pointer speed multiplier
   scrollSpeed: 1,
   naturalScroll: true,  // content follows your fingers
-  touchscreen: true,    // tap the screen half to click there
+  touchscreen: true,    // tap the screen half to click there (Laptop and Trackpad layouts)
+  screenTouch: 'touch', // Screen only: touch (tap where you want to click) | trackpad (the whole screen is one)
   sounds: true,
   volume: 0.55,
   haptics: true,

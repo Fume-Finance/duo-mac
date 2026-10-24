@@ -141,19 +141,20 @@ function swipeMac(dir) {
   sendNow({ t: 'act', a });
   haptic();
 }
+function zoomScreen(phase, ratio) {
+  if (phase === 'start') {
+    zoomBase = screen.zoom.s;
+    zoomAnchor = screen.cursorAnchor();
+  } else if (phase === 'change') {
+    screen.setZoom(zoomBase * ratio, zoomAnchor[0], zoomAnchor[1]);
+  }
+}
 const trackpad = new Trackpad($('#padzone'), $('#trackpad'), {
   ...pointer,
   probe: () => probeText(),
   tapped: (id) => tappedText(id),
   scroll: scrollMac,
-  zoom(phase, ratio) {
-    if (phase === 'start') {
-      zoomBase = screen.zoom.s;
-      zoomAnchor = screen.cursorAnchor();
-    } else if (phase === 'change') {
-      screen.setZoom(zoomBase * ratio, zoomAnchor[0], zoomAnchor[1]);
-    }
-  },
+  zoom: zoomScreen,
   swipe3: swipeMac,
   touched() {
     keyboard.markUsed();
@@ -206,7 +207,15 @@ $('#type-btn')?.addEventListener('click', () => { $('#type-btn').hidden = true; 
 $('#tool-kb')?.addEventListener('click', () => openIOSKeyboard());
 $('#tool-set')?.addEventListener('click', () => (sheet.isOpen ? sheet.close() : openSheet()));
 
-const lidTouch = new LidTouch($('#screen-area'), screen, { ...pointer, scroll: scrollMac, swipe3: swipeMac, probe: probeText, tapped: tappedText });
+// Screen only: the screen is touched where you point (LidTouch), or is one big trackpad.
+const screenIsPad = () => settings.layout === 'screen' && settings.screenTouch === 'trackpad';
+const lidTouch = new LidTouch($('#screen-area'), screen, {
+  ...pointer, scroll: scrollMac, swipe3: swipeMac, probe: probeText, tapped: tappedText, enabled: () => !screenIsPad(),
+});
+const screenPad = new Trackpad($('#screen-area'), $('#screen-area'), {
+  ...pointer, probe: () => probeText(), tapped: (id) => tappedText(id), scroll: scrollMac, zoom: zoomScreen, swipe3: swipeMac,
+  touched: () => keyboard.markUsed(), enabled: screenIsPad,
+});
 
 // ───── Settings sheet ─────
 const sheet = new Sheet($('#sheet'), {
@@ -389,6 +398,7 @@ function closeLid() {
   keyboard.releaseAll();
   trackpad.reset();
   lidTouch.reset();
+  screenPad.reset();
   link.send({ t: 'rel' });
   if (link.open) link.close();
 }
@@ -477,6 +487,7 @@ function applyTheme() {
 onSetting((k, v) => {
   if (k === 'theme') applyTheme();
   if (k === 'foldCloses') layout();
+  if (k === 'screenTouch' || k === 'layout') { lidTouch.reset(); screenPad.reset(); }
   if (k === 'hinge' || k === 'hingePad' || k === 'layout' || k === 'notch' || k === 'topEdge' || k === 'haptics') layout();
   if ((k === 'hinge' || k === 'hingePad' || k === 'topEdge' || k === 'layout') && settings.macDisplay === 'nano') {
     // Reshape the Mac's Duo display to the new screen area once the slider settles.
@@ -919,6 +930,7 @@ link = new Link({
       keyboard.releaseAll();
       trackpad.reset();
       lidTouch.reset();
+      screenPad.reset();
       if (code === 4002) {
         ticket = '';
         showAuth('Disconnected', 'After 30 minutes without use. Unlock again to carry on.', {
@@ -1217,6 +1229,7 @@ document.addEventListener('visibilitychange', () => {
     keyboard.releaseAll();
     trackpad.reset();
     lidTouch.reset();
+    screenPad.reset();
     link.send({ t: 'rel' });
     if (link.open && authed) link.close();
   } else if (!fatal && !lidClosed) {

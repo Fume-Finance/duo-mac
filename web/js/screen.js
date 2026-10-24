@@ -230,8 +230,12 @@ export class LidTouch {
     return { x: x / this.p.size, y: y / this.p.size };
   }
 
+  /** Taps click where they land: always in Screen only, else when the setting says so. */
+  get taps() { return settings.touchscreen || settings.layout === 'screen'; }
+
   down(e) {
     if (e.target.closest('button, #overlay:not(.hidden)')) return;
+    if (this.cb.enabled && !this.cb.enabled()) return; // Screen only, as a trackpad: trackpad.js has it
     e.preventDefault();
     try { this.el.setPointerCapture(e.pointerId); } catch {}
     const now = performance.now();
@@ -263,7 +267,7 @@ export class LidTouch {
     if ((this.mode === 'one' || this.mode === 'drag' || this.mode === 'pan') && e.pointerId !== this.g.primary) return;
     if (this.mode === 'one' && !this.g.moved && Math.hypot(pt.x - pt.sx, pt.y - pt.sy) > 8) {
       this.g.moved = true;
-      if (settings.touchscreen) {
+      if (this.taps) {
         this.cb.abs(...this.screen.normalized(pt.sx, pt.sy));
         this.cb.button(0, true, 1);
         this.mode = 'drag';
@@ -319,7 +323,7 @@ export class LidTouch {
     this.p.delete(e.pointerId);
     const now = performance.now();
     if (this.mode === 'one' && e.pointerId === this.g.primary) {
-      if (!cancelled && !this.g.moved && now - this.g.start < 350 && settings.touchscreen) {
+      if (!cancelled && !this.g.moved && now - this.g.start < 350 && this.taps) {
         this.cb.abs(...this.screen.normalized(pt.x, pt.y));
         this.cb.click(0, this.g.count);
         this.lastTap = { t: now, x: pt.x, y: pt.y, n: this.g.count };
@@ -332,7 +336,7 @@ export class LidTouch {
       this.mode = this.p.size ? 'tail' : 'none';
     } else if (this.mode === 'two') {
       const t = this.two;
-      if (!cancelled && !t.moved && now - t.start < 300 && settings.touchscreen && this.p.size === 0) {
+      if (!cancelled && !t.moved && now - t.start < 300 && this.taps && this.p.size === 0) {
         this.cb.abs(...this.screen.normalized(t.c.x, t.c.y));
         this.cb.click(1, 1);
       }

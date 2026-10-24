@@ -36,6 +36,18 @@ function scrollArt(natural) {
     <g class="finger up"><circle cx="60" cy="34" r="5.5" class="tip"/></g></svg>`;
 }
 
+/** Screen only: tap where you click (a finger on the window), or the screen as a trackpad (a finger
+ *  sliding, the pointer following it somewhere else). */
+function touchArt(pad) {
+  let out = `<svg viewBox="0 0 80 50"><rect x="14" y="2" width="52" height="46" rx="5" class="frame"/>${desk(16, 4, 48, 42)}
+    <rect x="24" y="13" width="32" height="22" rx="1.5" class="win"/>`;
+  out += pad
+    ? `<path d="M30 17l0 9 2.4-2.2 1.8 3.8 1.6-.8-1.8-3.7 3.3-.2z" class="ptr"/>
+       <path d="M44 41 L56 33" class="trail"/><circle cx="57" cy="32" r="4.5" class="tip"/>`
+    : `<circle cx="42" cy="24" r="7" class="ring"/><circle cx="42" cy="24" r="4.5" class="tip"/>`;
+  return out + '</svg>';
+}
+
 const fillArt = `<svg viewBox="0 0 80 50"><rect x="4" y="5" width="72" height="40" rx="4" class="frame"/>${desk(6, 7, 68, 36)}</svg>`;
 const mirrorArt = `<svg viewBox="0 0 80 50"><rect x="4" y="5" width="72" height="40" rx="4" class="frame"/>${desk(24, 7, 32, 36)}</svg>`;
 
@@ -176,7 +188,7 @@ export class Sheet {
         const v = b.dataset.val;
         setSetting(key, v === 'true' ? true : v === 'false' ? false : v);
         for (const x of b.parentElement.children) x.classList.toggle('on', x === b);
-        if (key === 'layout') {
+        if (key === 'layout' || key === 'screenTouch') {
           // Which of the options below apply depends on the layout.
           const p = this.el.querySelector('.panel'), y = p?.scrollTop || 0;
           this.render();
@@ -251,7 +263,6 @@ export class Sheet {
     ${slider('tracking', 'Tracking speed', 0.4, 3, 0.1, FMT.tracking)}
     ${slider('scrollSpeed', 'Scrolling speed', 0.4, 3, 0.1, FMT.scrollSpeed)}
     ${cards('naturalScroll', 'Scroll direction', [['true', 'Natural', scrollArt(true)], ['false', 'Inverted', scrollArt(false)]], 'Swipe up on the trackpad and…')}
-    ${toggle('touchscreen', 'Touch screen', 'Tap the screen to click there')}
   </div></div>
 
   <div class="group"><h3>Keyboard</h3><div class="box">
@@ -281,7 +292,13 @@ export class Sheet {
     ${displays}
     ${cards('quality', 'Quality', [['fast', 'Fast', qualityArt('🐇', 1.6)], ['balanced', 'Balanced', qualityArt('🐈', 0.6)], ['sharp', 'Sharp', qualityArt('🐌', 0)]], 'Faster and softer, or slower and crisper')}
     ${cards('layout', 'Layout', [['laptop', 'Laptop', duoArt(0.5)], ['trackpad', 'Trackpad', duoArt(0.5, true)], ['screen', 'Screen only', duoArt(1)]],
-      { laptop: 'Keyboard and trackpad below the screen', trackpad: 'Just a big trackpad below the screen. Tap a text field, or ⌨︎, to type.', screen: 'Touch the screen: two fingers scroll, three or four swipe. Tap a text field, or ⌨︎, to type.' }[settings.layout] || '')}
+      { laptop: 'Keyboard and trackpad below the screen', trackpad: 'Just a big trackpad below the screen. Tap a text field, or ⌨︎, to type.', screen: 'All screen. Tap a text field, or ⌨︎, to type.' }[settings.layout] || '')}
+    ${settings.layout === 'screen'
+      ? cards('screenTouch', 'Touching the screen', [['touch', 'Touch screen', touchArt(false)], ['trackpad', 'Trackpad', touchArt(true)]],
+        settings.screenTouch === 'trackpad'
+          ? 'The whole screen is a trackpad: slide to move the pointer, tap to click, two fingers scroll, three or four swipe.'
+          : 'Tap where you want to click, drag to drag. Two fingers scroll, three or four swipe.')
+      : toggle('touchscreen', 'Touch screen', 'Tap the screen to click there')}
     ${settings.layout === 'laptop' ? cards('theme', 'Finish', [['spaceblack', 'Space Black', keyboardArt(false)], ['silver', 'Silver', keyboardArt(true)]]) : ''}
     ${settings.layout !== 'screen' ? splitSlider() : ''}
     ${toggle('notch', 'Notch', settings.topEdge === 'full' && document.getElementById('app')?.classList.contains('tall-top') ? 'Purely cosmetic. Not shown in Full screen (no room above the screen).' : 'Purely cosmetic')}
