@@ -371,7 +371,6 @@ function closeLid() {
   if (lidClosed) return;
   lidClosed = true;
   remoteLog('info', [`lid: folded (${innerWidth}×${innerHeight})`]);
-  closedEl.querySelector('.mac').textContent = macName();
   closedEl.classList.toggle('silver', settings.theme === 'silver');
   closedEl.hidden = false;
   if (sheet.isOpen) sheet.close();
@@ -389,11 +388,6 @@ function openLid() {
   closedEl.hidden = true;
   if (!document.hidden && !fatal) link.reconnectNow();
 }
-closedEl.querySelector('.use-folded').addEventListener('click', () => {
-  setSetting('foldCloses', false);
-  openLid();
-  showBanner('Folding won’t close the lid any more. Turn it back on in Settings › Display.', 'info', 5000);
-});
 
 function layoutDeck() {
   const W = deck.clientWidth, H = deck.clientHeight;
