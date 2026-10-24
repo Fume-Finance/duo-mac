@@ -793,15 +793,9 @@ button { font: inherit; color: inherit; }
 .duo-art .pad { fill: #232326; stroke: rgba(255, 255, 255, .12); stroke-width: .5; }
 .card .duo-art { width: auto; height: 64px; }
 .card .art:has(.duo-art) { height: 64px; }
-.card .mic rect { fill: #e6e6ea; }
-.card .mic path, .card .waves path { stroke: #e6e6ea; stroke-width: 2; stroke-linecap: round; fill: none; }
-.card .base { fill: #4a4a50; }
-.card.on .mic rect { fill: #ff9f0a; }
-.card.on .mic path { stroke: #ff9f0a; }
-.card .waves path { stroke: #ff9f0a; opacity: 0; }
-.card.on .waves path { animation: mic-wave 1.6s ease-out infinite; }
-.card.on .waves path:nth-child(2n) { animation-delay: .25s; }
-@keyframes mic-wave { 0% { opacity: 0; } 30% { opacity: 1; } 100% { opacity: 0; } }
+.item .ico { display: grid; place-items: center; flex: none; width: 30px; height: 30px; border-radius: 8px; color: #fff; }
+.item .ico svg { width: 19px; height: 19px; }
+.mic-ico { background: linear-gradient(#ffb340, #ff9500); }
 .split { align-items: center; gap: 10px; }
 .split figure { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 3px; flex: none; }
 .split figcaption { font-size: 10px; color: #8f8f97; }

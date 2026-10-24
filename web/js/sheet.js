@@ -91,17 +91,6 @@ function splitSlider() {
       <figure>${duoArt(0.3, pad)}<figcaption>More ${what}</figcaption></figure></div></div>`;
 }
 
-/** Which microphone the Mac hears: its own (a MacBook), or this iPhone's, with sound waves. */
-function micArt(phone) {
-  const mic = (x, y) => `<g class="mic" transform="translate(${x} ${y})"><rect x="-3.2" y="-8" width="6.4" height="11" rx="3.2"/>
-    <path d="M-6 0a6 6 0 0 0 12 0M0 6v3.5M-3 9.5h6" fill="none"/></g>`;
-  const waves = (x, y) => `<g class="waves"><path d="M${x + 9} ${y - 6}a9 9 0 0 1 0 10"/><path d="M${x + 13} ${y - 9}a14 14 0 0 1 0 16"/>
-    <path d="M${x - 9} ${y - 6}a9 9 0 0 0 0 10"/><path d="M${x - 13} ${y - 9}a14 14 0 0 0 0 16"/></g>`;
-  return phone
-    ? `<svg viewBox="0 0 80 50"><rect x="27" y="4" width="26" height="42" rx="5" class="frame"/>${mic(40, 23)}${waves(40, 21)}</svg>`
-    : `<svg viewBox="0 0 80 50"><rect x="16" y="6" width="48" height="30" rx="3" class="frame"/><path d="M10 38h60l-2.5 4.5a2 2 0 0 1-1.8 1H14.3a2 2 0 0 1-1.8-1z" class="base"/>${mic(40, 22)}</svg>`;
-}
-
 const qualityArt = (emoji, blur) => `<span class="q"><span class="qe">${emoji}</span><span class="qs" style="filter:blur(${blur}px)">Aa</span></span>`;
 
 function keyboardArt(silver) {
@@ -275,10 +264,11 @@ export class Sheet {
   </div></div>
 
   <div class="group"><h3>Microphone</h3><div class="box">
-    ${cards('mic', '🎙️ The Mac hears', [['false', 'Mac’s microphone', micArt(false)], ['true', 'This iPhone', micArt(true)]],
-      i.micInstalled === false
+    <div class="item icon-item"><span class="ico mic-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" fill="currentColor"/><path d="M6 11a6 6 0 0 0 12 0M12 17v3.5M9 20.5h6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
+      <label for="s-mic">Use this iPhone’s microphone<small>${i.micInstalled === false
         ? 'First add the Duo Mac Microphone on the Mac: menu bar › Settings… › General.'
-        : 'Dictation, calls and voice modes on the Mac hear this iPhone while Duo Mac is open.')}
+        : 'Dictation, calls and voice modes on the Mac hear this iPhone.'}</small></label>
+      <input type="checkbox" switch id="s-mic" data-k="mic" ${settings.mic ? 'checked' : ''}></div>
   </div></div>
 
   <div class="group"><h3>Display</h3><div class="box">
