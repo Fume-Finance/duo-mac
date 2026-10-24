@@ -231,7 +231,7 @@ h1 {
 
 /* iPhone Duo (space black titanium), a bit larger than life so it reads next to the Mac */
 .duo {
-  --W: 66.9em; --H: 47.55em; --D: 47.55em; --T: .95em; --BT: .95em;
+  --W: 66.9em; --H: 47.55em; --D: 47.55em; --T: 2.4em; --BT: 2.4em;
   font-size: calc(var(--sw) * .00178 * 1.82 * 1.32);
   transform: translate3d(calc(var(--sw) * .265), 0, calc(var(--sw) * .1)) rotateY(-18deg);
 }
@@ -243,7 +243,7 @@ h1 {
 .duo .hinge-shade { position: absolute; left: 0; right: 0; top: 0; height: .9em; background: linear-gradient(rgba(0, 0, 0, .7), transparent); z-index: 1; }
 .duo .keyboard { --u: 3.95em; left: 1.2em; right: 1.2em; top: 1.45em; }
 .duo .trackpad { left: 9em; right: 9em; top: 28.4em; bottom: 1.6em; }
-.side-btn { position: absolute; top: 0; left: 0; height: .5em; transform-origin: 0 0; border-radius: .25em; background: linear-gradient(#8e9095, #56585c); }
+.side-btn { position: absolute; top: 0; left: 0; height: 1em; transform-origin: 0 0; border-radius: .25em; background: linear-gradient(#8e9095, #56585c); }
 
 /* A Mac desktop: on both screens, the same */
 .mac {

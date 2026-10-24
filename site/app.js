@@ -140,12 +140,12 @@
   $('#kb-mac').innerHTML = keyboardHTML(true);
   macDuo.innerHTML = macHTML();
   macMirror.innerHTML = macHTML();
-  edges(lidDuo, { W: 66.9, H: 47.55, R: 5.6, t: 0.95, side: 'lid', metal: 'ti' });
-  edges($('#duo .base'), { W: 66.9, H: 47.55, R: 5.6, t: 0.95, side: 'base', metal: 'ti' });
+  edges(lidDuo, { W: 66.9, H: 47.55, R: 5.6, t: 2.4, side: 'lid', metal: 'ti' });
+  edges($('#duo .base'), { W: 66.9, H: 47.55, R: 5.6, t: 2.4, side: 'base', metal: 'ti' });
   edges(lidMac, { W: 300, H: 198, R: 10, t: 4, side: 'lid', metal: 'al' });
   edges($('#mb .base'), { W: 300, H: 212, R: 11, t: 8, side: 'base', metal: 'al' });
   // The Duo's side button, on the right edge of its top half: an iPhone tell.
-  lidDuo.insertAdjacentHTML('beforeend', '<i class="side-btn" style="width:7em;transform:translate(67.05em,9em) rotateZ(90deg) rotateX(-90deg) translateY(.22em)"></i>');
+  lidDuo.insertAdjacentHTML('beforeend', '<i class="side-btn" style="width:7em;transform:translate(67.1em,9em) rotateZ(90deg) rotateX(-90deg) translateY(.7em)"></i>');
 
   const screens = [macDuo, macMirror].map((m) => ({
     m, finder: $('.finder', m), term: $('.term', m), pre: $('.term pre', m), cursor: $('.cursor', m),
