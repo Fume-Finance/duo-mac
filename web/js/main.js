@@ -142,6 +142,8 @@ function swipeMac(dir) {
 }
 const trackpad = new Trackpad($('#padzone'), $('#trackpad'), {
   ...pointer,
+  probe: () => probeText(),
+  tapped: (id) => tappedText(id),
   scroll: scrollMac,
   zoom(phase, ratio) {
     if (phase === 'start') {
@@ -171,11 +173,12 @@ addHapticSwitch($('#trackpad'));
 const hits = new Map();
 let hitSeq = 0, typeBtnTimer = 0;
 function probeText(nx, ny) {
-  if (settings.layout !== 'screen' || !link.open || !iosBar.hidden) return 0;
+  if (settings.layout === 'laptop' || !link.open || !iosBar.hidden) return 0;
   const id = ++hitSeq;
   hits.set(id, { text: null, tapped: 0 });
   if (hits.size > 8) hits.delete(hits.keys().next().value);
-  link.send({ t: 'hit', id, x: nx, y: ny });
+  // From the trackpad: whatever is under the Mac's pointer.
+  link.send(nx === undefined ? { t: 'hit', id } : { t: 'hit', id, x: nx, y: ny });
   return id;
 }
 function tappedText(id) {
@@ -198,6 +201,9 @@ function showTypeButton() {
   typeBtnTimer = setTimeout(() => { b.hidden = true; }, 4000);
 }
 $('#type-btn')?.addEventListener('click', () => { $('#type-btn').hidden = true; openIOSKeyboard(); });
+// Without the keyboard (Trackpad and Screen only layouts): the iPhone keyboard and Settings, always at hand.
+$('#tool-kb')?.addEventListener('click', () => openIOSKeyboard());
+$('#tool-set')?.addEventListener('click', () => (sheet.isOpen ? sheet.close() : openSheet()));
 
 const lidTouch = new LidTouch($('#screen-area'), screen, { ...pointer, scroll: scrollMac, swipe3: swipeMac, probe: probeText, tapped: tappedText });
 
@@ -310,7 +316,10 @@ function split() {
 function layout() {
   const H = app.clientHeight || window.innerHeight;
   const screenOnly = settings.layout === 'screen';
+  const padOnly = settings.layout === 'trackpad';
   app.classList.toggle('screen-only', screenOnly);
+  app.classList.toggle('pad-only', padOnly);
+  $('#tools').hidden = settings.layout === 'laptop';
   app.classList.toggle('nano', settings.macDisplay === 'nano');
   app.classList.toggle('show-notch', !!settings.notch);
   app.classList.toggle('haptics', !!settings.haptics);
@@ -319,7 +328,6 @@ function layout() {
   const tallTop = safeArea().top >= 70;
   app.classList.toggle('tall-top', tallTop);
   app.classList.toggle('full-top', tallTop && settings.topEdge === 'full');
-  $('#layout-btn').hidden = !screenOnly;
   app.style.setProperty('--lid-h', `${screenOnly ? H : Math.round(H * split())}px`);
   // Stats live on the trackpad, out of the way; with no trackpad, on the screen.
   const statsHome = screenOnly ? $('#screen-area') : $('#trackpad');
@@ -341,6 +349,16 @@ function layoutDeck() {
   const padTop = Math.max(9, H * 0.035);
   const padBot = Math.max(6, sab * 0.75); // just clear of the home indicator, like a tab bar
   const aw = W - 2 * padX, ah = H - padTop - padBot;
+
+  if (settings.layout === 'trackpad') {
+    // No keyboard: the trackpad fills the half, with the same margins.
+    const tp = $('#trackpad'), zone = $('#padzone');
+    const tw = aw, th = H - padTop - padBot;
+    Object.assign(zone.style, { left: '0px', top: '0px', width: `${W}px`, height: `${H}px` });
+    Object.assign(tp.style, { left: `${padX}px`, top: `${padTop}px`, width: `${tw}px`, height: `${th}px` });
+    for (const id of ['#speaker-l', '#speaker-r']) $(id).classList.remove('on');
+    return;
+  }
 
   // Keyboard: 15.6u wide × 6.3u tall (keys + well); leave at least ~38% of the height for the trackpad.
   let u = Math.min(aw / 15.6, (ah * 0.6) / 6.3);
@@ -420,7 +438,6 @@ onSetting((k, v) => {
   }
 });
 
-$('#layout-btn').addEventListener('click', () => setSetting('layout', 'laptop'));
 
 // ───── Overlay & banner ─────
 const authForm = overlay.querySelector('.field');

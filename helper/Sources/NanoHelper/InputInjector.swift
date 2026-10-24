@@ -77,7 +77,16 @@ final class InputInjector {
     func isTextField(nx: Double, ny: Double) -> Bool {
         if dryRun { return false }
         let b = bounds
-        let p = CGPoint(x: b.minX + min(max(nx, 0), 1) * b.width, y: b.minY + min(max(ny, 0), 1) * b.height)
+        return isTextField(at: CGPoint(x: b.minX + min(max(nx, 0), 1) * b.width, y: b.minY + min(max(ny, 0), 1) * b.height))
+    }
+
+    /// The same, under the Mac's pointer (a tap on the trackpad clicks there).
+    func isTextFieldUnderPointer() -> Bool {
+        if dryRun { return false }
+        return isTextField(at: pointerLocation())
+    }
+
+    private func isTextField(at p: CGPoint) -> Bool {
         let sys = AXUIElementCreateSystemWide()
         AXUIElementSetMessagingTimeout(sys, 0.3)
         var hit: AXUIElement?

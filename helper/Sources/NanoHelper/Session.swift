@@ -194,11 +194,12 @@ final class Session {
         case "act": if let a = m["a"] as? String { inj.action(a) }
         case "rel": inj.releaseAll()
         case "hit":
-            // Where the phone's finger just went down: is it a text field? (Screen only: the phone
-            // shows its own keyboard.) Off the network queue: Accessibility can be slow.
-            let id = m["id"] ?? 0, x = num(m["x"]), y = num(m["y"])
+            // Where the phone's finger just went down (or under the pointer, from the trackpad): is it
+            // a text field? Without the keyboard layout the phone then shows its own keyboard.
+            // Off the network queue: Accessibility can be slow.
+            let id = m["id"] ?? 0, x = num(m["x"]), y = num(m["y"]), atPointer = m["x"] == nil
             DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                let text = inj.isTextField(nx: x, ny: y)
+                let text = atPointer ? inj.isTextFieldUnderPointer() : inj.isTextField(nx: x, ny: y)
                 self?.send(["t": "hit", "id": id, "text": text])
             }
         case "ack": ack(UInt32(truncatingIfNeeded: int(m["f"])))

@@ -373,6 +373,34 @@ button { font: inherit; color: inherit; }
 }
 #type-btn[hidden] { display: none; }
 
+/* Trackpad layout: no keyboard, the trackpad fills the bottom half. */
+#app.pad-only #keyboard, #app.pad-only #keypop { display: none; }
+
+/* Keyboard and Settings buttons when there's no keyboard: top right of the trackpad half, or the
+   bottom right of the screen in Screen only. */
+#tools {
+  position: absolute;
+  right: max(var(--sar), 10px);
+  top: calc(var(--lid-h) + 10px);
+  display: flex;
+  gap: 8px;
+  z-index: 8;
+}
+#app.screen-only #tools { top: auto; bottom: max(var(--sab), 10px); }
+#tools[hidden] { display: none; }
+#tools button {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 34px;
+  padding: 7px;
+  border: 1px solid rgba(255, 255, 255, .16);
+  border-radius: 10px;
+  background: rgba(24, 24, 28, .78);
+  color: #e6e6ea;
+}
+#tools svg { width: 100%; height: 100%; }
+
 /* ───────────── Deck (keyboard + trackpad half) ───────────── */
 
 #deck {

@@ -104,7 +104,7 @@ Duo Mac lives in the **menu bar**. Its panel shows the connected iPhone and the 
 - The **⚙︎ key** (top right, where Touch ID sits on a MacBook) opens the settings.
 - A Bluetooth keyboard paired with the iPhone types on the Mac too.
 
-**Settings** (⚙︎ key): tracking and scroll speed, natural scrolling, touch screen, key sounds and haptics, F-key mode, quality (Fast / Balanced / Sharp), Mac screen (Fill with the Duo display, or Mirror as is), desktop size, Laptop or Screen-only layout, Space Black or Silver, fold position, top edge (start below the clock, or Full screen), notch, stats.
+**Settings** (⚙︎ key): tracking and scroll speed, natural scrolling, touch screen, key sounds and haptics, F-key mode, quality (Fast / Balanced / Sharp), Mac screen (Fill with the Duo display, or Mirror as is), desktop size, layout (Laptop: keyboard and trackpad; Trackpad: just a big trackpad; Screen only), Space Black or Silver (Laptop), fold position, top edge (start below the clock, or Full screen), notch, stats.
 
 **Duo display** (on by default): instead of squeezing your 16:10 screen into the phone's half, the Mac gets an extra display shaped exactly like it, and the Mac's own screen mirrors it. *Desktop size* picks how roomy it is: Larger text, Default or More space. It goes away a minute after the iPhone disconnects (or right away with *Mirror as is*, or when you quit the app).
 

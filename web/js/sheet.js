@@ -52,7 +52,7 @@ const topArt = (full) => `<svg viewBox="0 0 80 50"><rect x="4" y="3" width="72" 
   <text x="58.5" y="12.2" class="clock" text-anchor="end">9:41</text><circle cx="66.5" cy="10" r="3.3" class="ring"/></svg>`;
 
 /** An unfolded Duo: the Mac's screen on top (menu bar, a window, the Dock), then keyboard and trackpad. */
-function duoArt(share) {
+function duoArt(share, padOnly = false) {
   const X = 3, Y = 2, W = 40, H = 70, sh = Math.round(H * share);
   let out = `<svg viewBox="0 0 46 74" class="duo-art"><rect x="${X}" y="${Y}" width="${W}" height="${H}" rx="5" class="frame"/>`;
   // screen
@@ -64,13 +64,16 @@ function duoArt(share) {
   if (share < 1) {
     // fold, keyboard rows, trackpad
     out += `<line x1="${X}" x2="${X + W}" y1="${Y + sh}" y2="${Y + sh}" class="fold"/>`;
-    const kTop = Y + sh + 2.5, kH = (H - sh) * 0.55, rows = Math.max(2, Math.min(5, Math.round(kH / 3.4)));
+    const kTop = Y + sh + 2.5, kH = padOnly ? -1.5 : (H - sh) * 0.55, rows = Math.max(2, Math.min(5, Math.round(kH / 3.4)));
     const rh = kH / rows;
-    for (let r = 0; r < rows; r++) for (let i = 0; i < 8; i++) {
+    if (!padOnly) for (let r = 0; r < rows; r++) for (let i = 0; i < 8; i++) {
       out += `<rect x="${X + 3 + i * 4.3}" y="${(kTop + r * rh).toFixed(1)}" width="3.5" height="${(rh - 0.9).toFixed(1)}" rx="0.6" class="k"/>`;
     }
     const tTop = kTop + kH + 1.5, tH = Y + H - 2.5 - tTop;
-    if (tH > 3) out += `<rect x="${X + 10}" y="${tTop.toFixed(1)}" width="${W - 20}" height="${tH.toFixed(1)}" rx="1.4" class="pad"/>`;
+    // Trackpad layout: the pad fills the half; laptop: a MacBook-ish pad under the keys.
+    if (tH > 3) out += padOnly
+      ? `<rect x="${X + 3}" y="${tTop.toFixed(1)}" width="${W - 6}" height="${tH.toFixed(1)}" rx="2" class="pad"/>`
+      : `<rect x="${X + 10}" y="${tTop.toFixed(1)}" width="${W - 20}" height="${tH.toFixed(1)}" rx="1.4" class="pad"/>`;
   }
   return out + '</svg>';
 }
@@ -78,11 +81,12 @@ function duoArt(share) {
 function splitSlider() {
   const v = settings.hinge ?? (innerHeight / innerWidth > 1.8 ? 0.56 : 0.5);
   // Right to left, so the side with more screen is on the left, like its picture.
-  return `<div class="item split-item"><span class="l">Screen / keyboard split<small>On a foldable, match it to the fold</small></span>
-    <div class="split"><figure>${duoArt(0.72)}<figcaption>More screen</figcaption></figure>
+  const pad = settings.layout === 'trackpad', what = pad ? 'trackpad' : 'keyboard';
+  return `<div class="item split-item"><span class="l">Screen / ${what} split<small>On a foldable, match it to the fold</small></span>
+    <div class="split"><figure>${duoArt(0.72, pad)}<figcaption>More screen</figcaption></figure>
       <div class="split-mid"><input type="range" dir="rtl" data-k="hinge" min="0.25" max="0.75" step="0.005" value="${v}">
         <span class="val" data-v="hinge">${FMT.hinge(v)}</span></div>
-      <figure>${duoArt(0.3)}<figcaption>More keyboard</figcaption></figure></div></div>`;
+      <figure>${duoArt(0.3, pad)}<figcaption>More ${what}</figcaption></figure></div></div>`;
 }
 
 const qualityArt = (emoji, blur) => `<span class="q"><span class="qe">${emoji}</span><span class="qs" style="filter:blur(${blur}px)">Aa</span></span>`;
@@ -169,6 +173,13 @@ export class Sheet {
         const v = b.dataset.val;
         setSetting(key, v === 'true' ? true : v === 'false' ? false : v);
         for (const x of b.parentElement.children) x.classList.toggle('on', x === b);
+        if (key === 'layout') {
+          // Which of the options below apply depends on the layout.
+          const p = this.el.querySelector('.panel'), y = p?.scrollTop || 0;
+          this.render();
+          const q = this.el.querySelector('.panel');
+          if (q) q.scrollTop = y;
+        }
       }
     });
     el.addEventListener('input', (e) => {
@@ -258,9 +269,10 @@ export class Sheet {
     ${nano ? `<div class="item"><span class="l"><small>The Mac gets a display shaped exactly like this screen, and its own screen mirrors it (with black bars). Your windows may rearrange when it switches on or off.</small></span></div>` : ''}
     ${displays}
     ${cards('quality', 'Quality', [['fast', 'Fast', qualityArt('🐇', 1.6)], ['balanced', 'Balanced', qualityArt('🐈', 0.6)], ['sharp', 'Sharp', qualityArt('🐌', 0)]], 'Faster and softer, or slower and crisper')}
-    ${cards('layout', 'Layout', [['laptop', 'Laptop', duoArt(0.5)], ['screen', 'Screen only', duoArt(1)]], 'Screen only hides the keyboard and trackpad')}
-    ${cards('theme', 'Finish', [['spaceblack', 'Space Black', keyboardArt(false)], ['silver', 'Silver', keyboardArt(true)]])}
-    ${splitSlider()}
+    ${cards('layout', 'Layout', [['laptop', 'Laptop', duoArt(0.5)], ['trackpad', 'Trackpad', duoArt(0.5, true)], ['screen', 'Screen only', duoArt(1)]],
+      { laptop: 'Keyboard and trackpad below the screen', trackpad: 'Just a big trackpad below the screen. Tap a text field, or ⌨︎, to type.', screen: 'Touch the screen: two fingers scroll, three or four swipe. Tap a text field, or ⌨︎, to type.' }[settings.layout] || '')}
+    ${settings.layout === 'laptop' ? cards('theme', 'Finish', [['spaceblack', 'Space Black', keyboardArt(false)], ['silver', 'Silver', keyboardArt(true)]]) : ''}
+    ${settings.layout !== 'screen' ? splitSlider() : ''}
     ${toggle('notch', 'Notch', settings.topEdge === 'full' && document.getElementById('app')?.classList.contains('tall-top') ? 'Purely cosmetic. Not shown in Full screen (no room above the screen).' : 'Purely cosmetic')}
     ${toggle('chime', 'Startup chime')}
     ${toggle('stats', 'Show stats', 'Frame rate, bandwidth, latency')}

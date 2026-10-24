@@ -76,6 +76,7 @@ export class Trackpad {
       const quick = now - this.lastTap.t < MULTI_TAP_MS &&
         Math.hypot(e.clientX - this.lastTap.x, e.clientY - this.lastTap.y) < MULTI_TAP_DIST;
       this.g = { start: now, moved: false, stopper: stoppedMomentum, followsTap: quick, primary: e.pointerId };
+      this.g.probe = this.cb.probe?.() || 0; // a text field under the pointer?
       this.mode = 'one';
       return;
     }
@@ -173,6 +174,7 @@ export class Trackpad {
           const n = this.g.followsTap ? Math.min(3, this.lastTap.n + 1) : 1;
           this.cb.click(0, n);
           this.lastTap = { t: now, x: pt.x, y: pt.y, n };
+          this.cb.tapped?.(this.g.probe);
         } else {
           this.lastTap.t = 0;
         }
