@@ -13,6 +13,7 @@ export const DEFAULTS = {
   quality: 'balanced',  // fast | balanced | sharp
   theme: 'spaceblack',  // spaceblack | silver
   hinge: null,          // screen share of the height (the fold); null = automatic for this phone
+  hingePad: null,       // the same for the Trackpad layout, kept separately
   stats: false,
   notch: false,
   topEdge: 'full',      // iPhone Duo: clear (screen starts below the status bar) | full (runs under it)

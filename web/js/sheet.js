@@ -79,13 +79,15 @@ function duoArt(share, padOnly = false) {
 }
 
 function splitSlider() {
-  const v = settings.hinge ?? (innerHeight / innerWidth > 1.8 ? 0.56 : 0.5);
+  // Laptop and Trackpad layouts each remember their own split.
+  const key = settings.layout === 'trackpad' ? 'hingePad' : 'hinge';
+  const v = settings[key] ?? (innerHeight / innerWidth > 1.8 ? 0.56 : 0.5);
   // Right to left, so the side with more screen is on the left, like its picture.
   const pad = settings.layout === 'trackpad', what = pad ? 'trackpad' : 'keyboard';
   return `<div class="item split-item"><span class="l">Screen / ${what} split<small>On a foldable, match it to the fold</small></span>
     <div class="split"><figure>${duoArt(0.72, pad)}<figcaption>More screen</figcaption></figure>
-      <div class="split-mid"><input type="range" dir="rtl" data-k="hinge" min="0.25" max="0.75" step="0.005" value="${v}">
-        <span class="val" data-v="hinge">${FMT.hinge(v)}</span></div>
+      <div class="split-mid"><input type="range" dir="rtl" data-k="${key}" min="0.25" max="0.75" step="0.005" value="${v}">
+        <span class="val" data-v="${key}">${FMT.hinge(v)}</span></div>
       <figure>${duoArt(0.3, pad)}<figcaption>More ${what}</figcaption></figure></div></div>`;
 }
 
@@ -146,6 +148,7 @@ const FMT = {
   scrollSpeed: (v) => `${(+v).toFixed(1)}×`,
   volume: (v) => `${Math.round(v * 100)}%`,
   hinge: (v) => `${Math.round(v * 100)}%`,
+  hingePad: (v) => `${Math.round(v * 100)}%`,
 };
 
 export class Sheet {

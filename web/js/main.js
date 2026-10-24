@@ -306,7 +306,8 @@ function safeArea() {
 
 /** Screen share of the height: the setting, or automatic (more screen on tall, non-folding phones). */
 function split() {
-  if (settings.hinge) return settings.hinge;
+  const own = settings.layout === 'trackpad' ? settings.hingePad : settings.hinge; // each layout keeps its own
+  if (own) return own;
   // A folded foldable can say where the fold is (Viewport Segments API; behind a flag in Safari 27.1).
   const seg = window.viewport?.segments;
   if (seg?.length === 2 && seg[0].height < innerHeight * 0.9) return (seg[0].y + seg[0].height) / innerHeight;
@@ -417,8 +418,8 @@ function applyTheme() {
 
 onSetting((k, v) => {
   if (k === 'theme') applyTheme();
-  if (k === 'hinge' || k === 'layout' || k === 'notch' || k === 'topEdge' || k === 'haptics') layout();
-  if ((k === 'hinge' || k === 'topEdge' || k === 'layout') && settings.macDisplay === 'nano') {
+  if (k === 'hinge' || k === 'hingePad' || k === 'layout' || k === 'notch' || k === 'topEdge' || k === 'haptics') layout();
+  if ((k === 'hinge' || k === 'hingePad' || k === 'topEdge' || k === 'layout') && settings.macDisplay === 'nano') {
     // Reshape the Mac's Duo display to the new screen area once the slider settles.
     clearTimeout(hingeTimer);
     hingeTimer = setTimeout(() => {
@@ -783,7 +784,7 @@ let prefsRestored = false;
 
 function onAuthed(m) {
   if (freshInstall && !prefsRestored && m.prefs && typeof m.prefs === 'object') {
-    for (const [k, v] of Object.entries(upgrade({ ...m.prefs }))) if (k in DEFAULTS && typeof v === typeof DEFAULTS[k] || k === 'hinge') setSetting(k, v);
+    for (const [k, v] of Object.entries(upgrade({ ...m.prefs }))) if (k in DEFAULTS && typeof v === typeof DEFAULTS[k] || k === 'hinge' || k === 'hingePad') setSetting(k, v);
   }
   prefsRestored = true;
   authed = true;
