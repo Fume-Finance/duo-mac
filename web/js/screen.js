@@ -207,6 +207,9 @@ const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
 
 /** Touch on the screen half: tap = click there, drag = drag, two fingers = zoom/pan (local). */
 export class LidTouch {
+  // Touching the screen itself: tap to click there, drag to drag; two fingers scroll the Mac (or
+  // pinch to zoom the picture), a two-finger tap right-clicks; three or four fingers swipe for
+  // Mission Control, App Exposé and Spaces, like on the trackpad.
   constructor(el, screen, cb) {
     this.el = el;
     this.screen = screen;
@@ -214,10 +217,17 @@ export class LidTouch {
     this.p = new Map();
     this.mode = 'none';
     this.lastTap = { t: 0, x: 0, y: 0, n: 0 };
+    this.momentum = 0;
     el.addEventListener('pointerdown', (e) => this.down(e));
     el.addEventListener('pointermove', (e) => this.move(e));
     el.addEventListener('pointerup', (e) => this.up(e, false));
     el.addEventListener('pointercancel', (e) => this.up(e, true));
+  }
+
+  centroid() {
+    let x = 0, y = 0;
+    for (const q of this.p.values()) { x += q.x; y += q.y; }
+    return { x: x / this.p.size, y: y / this.p.size };
   }
 
   down(e) {
@@ -226,6 +236,7 @@ export class LidTouch {
     try { this.el.setPointerCapture(e.pointerId); } catch {}
     const now = performance.now();
     if (e.isPrimary && this.p.size) this.reset(); // no other touch is down: drop stale ones
+    cancelAnimationFrame(this.momentum);
     this.cb.touched?.();
     this.p.set(e.pointerId, { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY });
     if (this.p.size === 1) {
@@ -235,7 +246,10 @@ export class LidTouch {
     } else if (this.p.size === 2 && (this.mode === 'one' || this.mode === 'pan') && !this.g.moved) {
       const [a, b] = [...this.p.values()];
       this.mode = 'two';
-      this.two = { d: Math.max(1, dist(a, b)), c: mid(a, b), lc: mid(a, b), s: this.screen.zoom.s, moved: false, start: now };
+      this.two = { d: Math.max(1, dist(a, b)), c: mid(a, b), lc: mid(a, b), s: this.screen.zoom.s, kind: null, moved: false, start: now, v: [] };
+    } else if (this.p.size >= 3 && this.mode === 'two' && !this.two.kind) {
+      this.mode = 'swipe';
+      this.swipe = { c: this.centroid(), fired: false };
     }
   }
 
@@ -265,12 +279,36 @@ export class LidTouch {
     } else if (this.mode === 'two' && this.p.size >= 2) {
       const [a, b] = [...this.p.values()];
       const t = this.two, d = dist(a, b), c = mid(a, b);
-      if (Math.abs(d - t.d) > 8 || Math.hypot(c.x - t.c.x, c.y - t.c.y) > 8) t.moved = true;
-      if (!t.moved) return;
-      const ar = this.screen.area.getBoundingClientRect();
-      this.screen.setZoom(t.s * (d / t.d), c.x - ar.left, c.y - ar.top);
-      this.screen.panBy(c.x - t.lc.x, c.y - t.lc.y);
+      const cm = Math.hypot(c.x - t.c.x, c.y - t.c.y), dd = Math.abs(d - t.d);
+      if (cm > 6 || dd > 8) t.moved = true;
+      if (!t.kind) {
+        // Fingers spreading: zoom the picture. Moving together: scroll the Mac under them.
+        if (dd > 26 && dd > cm * 1.3) t.kind = 'pinch';
+        else if (cm > 8) {
+          t.kind = 'scroll';
+          this.cb.abs(...this.screen.normalized(t.c.x, t.c.y));
+        }
+      }
+      if (t.kind === 'scroll') {
+        const sx = c.x - t.lc.x, sy = c.y - t.lc.y;
+        if (sx || sy) {
+          this.cb.scroll?.(sx, sy);
+          const now = performance.now();
+          t.v.push({ t: now, x: sx, y: sy });
+          while (t.v.length && now - t.v[0].t > 100) t.v.shift();
+        }
+      } else if (t.kind === 'pinch') {
+        const ar = this.screen.area.getBoundingClientRect();
+        this.screen.setZoom(t.s * (d / t.d), c.x - ar.left, c.y - ar.top);
+        this.screen.panBy(c.x - t.lc.x, c.y - t.lc.y);
+      }
       t.lc = c;
+    } else if (this.mode === 'swipe' && !this.swipe.fired) {
+      const c = this.centroid(), mx = c.x - this.swipe.c.x, my = c.y - this.swipe.c.y;
+      if (Math.hypot(mx, my) > 50) {
+        this.swipe.fired = true;
+        this.cb.swipe3?.(Math.abs(mx) > Math.abs(my) ? (mx > 0 ? 'right' : 'left') : (my > 0 ? 'down' : 'up'));
+      }
     }
   }
 
@@ -290,14 +328,37 @@ export class LidTouch {
       if (!cancelled) this.cb.abs(...this.screen.normalized(pt.x, pt.y));
       this.cb.button(0, false, 1);
       this.mode = this.p.size ? 'tail' : 'none';
-    } else if (this.mode === 'two' && this.p.size === 0) {
+    } else if (this.mode === 'two') {
       const t = this.two;
-      if (!cancelled && !t.moved && now - t.start < 300 && settings.touchscreen) {
+      if (!cancelled && !t.moved && now - t.start < 300 && settings.touchscreen && this.p.size === 0) {
         this.cb.abs(...this.screen.normalized(t.c.x, t.c.y));
         this.cb.click(1, 1);
       }
+      if (t.kind === 'scroll' && !cancelled) this.glide(t.v, now);
+      this.mode = this.p.size ? 'tail' : 'none';
     }
     if (this.p.size === 0) this.mode = 'none';
+  }
+
+  /** Keep scrolling after the fingers lift, slowing down, like iOS. */
+  glide(samples, now) {
+    const recent = samples.filter((s) => now - s.t < 90);
+    if (recent.length < 2 || !this.cb.scroll) return;
+    const span = Math.max(16, now - recent[0].t);
+    let vx = recent.reduce((a, s) => a + s.x, 0) / span;
+    let vy = recent.reduce((a, s) => a + s.y, 0) / span;
+    if (Math.hypot(vx, vy) < 0.3) return;
+    let last = performance.now();
+    const step = () => {
+      const t = performance.now(), dt = Math.min(50, t - last);
+      last = t;
+      const decay = Math.pow(0.9963, dt);
+      vx *= decay;
+      vy *= decay;
+      this.cb.scroll(vx * dt, vy * dt, true);
+      this.momentum = Math.hypot(vx, vy) < 0.03 ? 0 : requestAnimationFrame(step);
+    };
+    this.momentum = requestAnimationFrame(step);
   }
 
   /** Forget all touches (app backgrounded, connection lost); lets go of a drag in progress. */

@@ -520,8 +520,9 @@ final class NanoCore {
         case "more": width = smallest * 1.3
         default: width = smallest * 1.12
         }
-        // Laptop-like shapes only: a very wide, short desktop breaks macOS window placement.
-        let h = min(1800, max(480, width / max(0.7, min(aspect, 1.8))))
+        // Not too wide (a very wide, short desktop breaks macOS window placement), but as tall as a
+        // phone held upright, so Screen only fills even a regular iPhone edge to edge.
+        let h = min(1800, max(480, width / max(0.45, min(aspect, 1.8))))
         return (Int(width) & ~1, Int(h.rounded()) & ~1)
     }
 

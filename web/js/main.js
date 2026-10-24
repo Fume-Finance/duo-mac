@@ -127,15 +127,22 @@ const keyboard = new Keyboard($('#keyboard'), $('#keypop'), {
 
 // ───── Trackpad ─────
 let zoomBase = 1, zoomAnchor = [0, 0];
+function scrollMac(dx, dy) {
+  keyboard.markUsed();
+  const k = 2.4 * settings.scrollSpeed * (settings.naturalScroll ? 1 : -1);
+  acc.sx += dx * k;
+  acc.sy += dy * k;
+  flushSoon();
+}
+/** Three or four fingers swiping: Mission Control, App Exposé, or the next Space. */
+function swipeMac(dir) {
+  const a = { up: 'missionControl', down: 'appExpose', left: 'spaceRight', right: 'spaceLeft' }[dir];
+  sendNow({ t: 'act', a });
+  haptic();
+}
 const trackpad = new Trackpad($('#padzone'), $('#trackpad'), {
   ...pointer,
-  scroll(dx, dy) {
-    keyboard.markUsed();
-    const k = 2.4 * settings.scrollSpeed * (settings.naturalScroll ? 1 : -1);
-    acc.sx += dx * k;
-    acc.sy += dy * k;
-    flushSoon();
-  },
+  scroll: scrollMac,
   zoom(phase, ratio) {
     if (phase === 'start') {
       zoomBase = screen.zoom.s;
@@ -144,11 +151,7 @@ const trackpad = new Trackpad($('#padzone'), $('#trackpad'), {
       screen.setZoom(zoomBase * ratio, zoomAnchor[0], zoomAnchor[1]);
     }
   },
-  swipe3(dir) {
-    const a = { up: 'missionControl', down: 'appExpose', left: 'spaceRight', right: 'spaceLeft' }[dir];
-    sendNow({ t: 'act', a });
-    haptic();
-  },
+  swipe3: swipeMac,
   touched() {
     keyboard.markUsed();
     const hint = $('#trackpad .hint');
@@ -162,7 +165,7 @@ if (settings.hintSeen) $('#trackpad .hint').classList.add('gone');
 addHapticSwitch($('#trackpad'));
 
 // ───── Touch on the screen half ─────
-const lidTouch = new LidTouch($('#screen-area'), screen, pointer);
+const lidTouch = new LidTouch($('#screen-area'), screen, { ...pointer, scroll: scrollMac, swipe3: swipeMac });
 
 // ───── Settings sheet ─────
 const sheet = new Sheet($('#sheet'), {
@@ -362,7 +365,7 @@ function applyTheme() {
 onSetting((k, v) => {
   if (k === 'theme') applyTheme();
   if (k === 'hinge' || k === 'layout' || k === 'notch' || k === 'topEdge' || k === 'haptics') layout();
-  if ((k === 'hinge' || k === 'topEdge') && settings.macDisplay === 'nano') {
+  if ((k === 'hinge' || k === 'topEdge' || k === 'layout') && settings.macDisplay === 'nano') {
     // Reshape the Mac's Duo display to the new screen area once the slider settles.
     clearTimeout(hingeTimer);
     hingeTimer = setTimeout(() => {

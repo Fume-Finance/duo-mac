@@ -596,6 +596,10 @@ button { font: inherit; color: inherit; }
 /* Screen-only layout */
 #app.screen-only { grid-template-rows: 1fr 0; }
 #app.screen-only #deck { display: none; }
+/* With the Duo display, screen-only is truly full screen: edge to edge, under the status bar (iOS
+   draws the clock over a corner), and the Mac's display is reshaped to match. */
+#app.screen-only.nano #lid { padding: 0; }
+#app.screen-only.nano #bezel-notch, #app.screen-only #chin { display: none; }
 
 /* ───────────── Settings sheet ───────────── */
 
