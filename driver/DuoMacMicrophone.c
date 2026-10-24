@@ -1,10 +1,14 @@
 // Duo Mac Microphone: a virtual audio device that turns what Duo Mac plays into it (the iPhone's
 // microphone, streamed over the network) into microphone input for every Mac app.
 //
-// A Core Audio "AudioServerPlugIn", loaded by coreaudiod from /Library/Audio/Plug-Ins/HAL. One device
-// with an output stream and an input stream joined by a ring buffer: samples written to the output
-// at a given sample time are read back by the input a moment later (a loopback, like BlackHole).
-// Duo Mac is the only thing that plays into it; the output side never offers itself as a speaker.
+// A Core Audio "AudioServerPlugIn", loaded by coreaudiod from /Library/Audio/Plug-Ins/HAL. Two devices
+// joined by a ring buffer, on one shared clock:
+//   • "Duo Mac Microphone": input only, what apps record from.
+//   • "Duo Mac Microphone Feed": output only and hidden, what Duo Mac plays into.
+// Samples written to the feed at a given sample time are read back by the microphone a moment later
+// (a loopback, like BlackHole). Two devices rather than one with both directions, because opening a
+// device that has an input counts as using a microphone: macOS would stop Duo Mac to ask for
+// permission just to play into it.
 //
 // Structure follows Apple's NullAudio sample driver. 48 kHz, mono, 32-bit float.
 
@@ -15,14 +19,16 @@
 #include <string.h>
 
 #define kPlugInBundleID "com.riccardoconti.duomac.microphone"
-#define kDeviceUID "DuoMacMicrophone_UID"
+#define kMicUID "DuoMacMicrophone_UID"
+#define kFeedUID "DuoMacMicrophoneFeed_UID"
 #define kModelUID "DuoMacMicrophone_ModelUID"
 
 enum {
     kObjectID_PlugIn = kAudioObjectPlugInObject,
-    kObjectID_Device = 2,
-    kObjectID_Stream_Input = 3,
-    kObjectID_Stream_Output = 4,
+    kObjectID_Mic = 2,
+    kObjectID_Mic_Stream = 3,
+    kObjectID_Feed = 4,
+    kObjectID_Feed_Stream = 5,
 };
 
 static const Float64 kSampleRate = 48000.0;
@@ -30,16 +36,16 @@ static const UInt32 kChannels = 1;
 static const UInt32 kRingFrames = 16384;            // also the zero-time-stamp period (~0.34 s)
 static const UInt32 kLatencyFrames = 0;
 static const UInt32 kSafetyFrames = 0;
+static const UInt32 kClockDomain = 0x44756f4d;      // 'DuoM': both devices run on the same clock
 
 static AudioServerPlugInHostRef gHost = NULL;
 static pthread_mutex_t gStateMutex = PTHREAD_MUTEX_INITIALIZER;
 static UInt32 gRefCount = 0;
 
-static UInt64 gIOCount = 0;
+static UInt32 gIOCount[2] = { 0, 0 };              // [0] the microphone, [1] the feed
 static Float64 gHostTicksPerFrame = 0;
-static UInt64 gAnchorHostTime = 0;
-static UInt64 gNumberTimeStamps = 0;
-static bool gInputActive = true, gOutputActive = true;
+static UInt64 gAnchorHostTime = 0;                  // the shared clock's sample time 0
+static bool gMicStreamActive = true, gFeedStreamActive = true;
 
 static float gRing[16384];                           // kRingFrames × kChannels
 
@@ -131,6 +137,7 @@ static OSStatus DM_Initialize(AudioServerPlugInDriverRef inDriver, AudioServerPl
     mach_timebase_info(&tb);
     Float64 hostClockFrequency = ((Float64)tb.denom / (Float64)tb.numer) * 1000000000.0;
     gHostTicksPerFrame = hostClockFrequency / kSampleRate;
+    gAnchorHostTime = mach_absolute_time();
     return 0;
 }
 
@@ -160,7 +167,8 @@ static AudioStreamBasicDescription StreamFormat(void) {
     return f;
 }
 
-static bool IsStream(AudioObjectID id) { return id == kObjectID_Stream_Input || id == kObjectID_Stream_Output; }
+static bool IsDevice(AudioObjectID id) { return id == kObjectID_Mic || id == kObjectID_Feed; }
+static bool IsStream(AudioObjectID id) { return id == kObjectID_Mic_Stream || id == kObjectID_Feed_Stream; }
 
 /// Copies `value` (of `size` bytes) out, or fails if there's no room.
 #define RETURN_VALUE(TYPE, VALUE) do { \
@@ -181,7 +189,8 @@ static Boolean DM_HasProperty(AudioServerPlugInDriverRef inDriver, AudioObjectID
             return true;
         }
         return false;
-    case kObjectID_Device:
+    case kObjectID_Mic:
+    case kObjectID_Feed:
         switch (a->mSelector) {
         case kAudioObjectPropertyBaseClass: case kAudioObjectPropertyClass: case kAudioObjectPropertyOwner:
         case kAudioObjectPropertyName: case kAudioObjectPropertyManufacturer: case kAudioObjectPropertyOwnedObjects:
@@ -197,8 +206,8 @@ static Boolean DM_HasProperty(AudioServerPlugInDriverRef inDriver, AudioObjectID
             return a->mScope == kAudioObjectPropertyScopeInput || a->mScope == kAudioObjectPropertyScopeOutput;
         }
         return false;
-    case kObjectID_Stream_Input:
-    case kObjectID_Stream_Output:
+    case kObjectID_Mic_Stream:
+    case kObjectID_Feed_Stream:
         switch (a->mSelector) {
         case kAudioObjectPropertyBaseClass: case kAudioObjectPropertyClass: case kAudioObjectPropertyOwner:
         case kAudioObjectPropertyOwnedObjects: case kAudioStreamPropertyIsActive: case kAudioStreamPropertyDirection:
@@ -217,7 +226,7 @@ static OSStatus DM_IsPropertySettable(AudioServerPlugInDriverRef inDriver, Audio
     if (inDriver != gDriverRef || !a || !out) return kAudioHardwareIllegalOperationError;
     if (!DM_HasProperty(inDriver, id, pid, a)) return kAudioHardwareUnknownPropertyError;
     *out = false;
-    if (id == kObjectID_Device && a->mSelector == kAudioDevicePropertyNominalSampleRate) *out = true;
+    if (IsDevice(id) && a->mSelector == kAudioDevicePropertyNominalSampleRate) *out = true;
     if (IsStream(id) && (a->mSelector == kAudioStreamPropertyIsActive || a->mSelector == kAudioStreamPropertyVirtualFormat
                          || a->mSelector == kAudioStreamPropertyPhysicalFormat)) *out = true;
     return 0;
@@ -251,14 +260,17 @@ static OSStatus DM_GetPropertyDataSize(AudioServerPlugInDriverRef inDriver, Audi
     case kAudioStreamPropertyAvailableVirtualFormats: case kAudioStreamPropertyAvailablePhysicalFormats:
         *out = sizeof(AudioStreamRangedDescription); return 0;
     case kAudioObjectPropertyOwnedObjects:
-        if (id == kObjectID_PlugIn) *out = sizeof(AudioObjectID);
-        else if (id == kObjectID_Device) *out = 2 * sizeof(AudioObjectID);
-        else *out = 0;
+        *out = (id == kObjectID_PlugIn ? 2 : IsDevice(id) ? 1 : 0) * sizeof(AudioObjectID);
         return 0;
-    case kAudioPlugInPropertyDeviceList: case kAudioDevicePropertyRelatedDevices:
+    case kAudioPlugInPropertyDeviceList:
+        *out = 2 * sizeof(AudioObjectID); return 0;
+    case kAudioDevicePropertyRelatedDevices:
         *out = sizeof(AudioObjectID); return 0;
-    case kAudioDevicePropertyStreams:
-        *out = (a->mScope == kAudioObjectPropertyScopeGlobal ? 2 : 1) * sizeof(AudioObjectID); return 0;
+    case kAudioDevicePropertyStreams: {
+        bool mic = id == kObjectID_Mic;
+        bool none = (mic && a->mScope == kAudioObjectPropertyScopeOutput) || (!mic && a->mScope == kAudioObjectPropertyScopeInput);
+        *out = (none ? 0 : 1) * sizeof(AudioObjectID); return 0;
+    }
     default:
         *out = sizeof(UInt32); return 0;
     }
@@ -276,42 +288,49 @@ static OSStatus DM_GetPropertyData(AudioServerPlugInDriverRef inDriver, AudioObj
         case kAudioObjectPropertyClass: RETURN_VALUE(AudioClassID, kAudioPlugInClassID);
         case kAudioObjectPropertyOwner: RETURN_VALUE(AudioObjectID, kAudioObjectUnknown);
         case kAudioObjectPropertyManufacturer: RETURN_VALUE(CFStringRef, CFSTR("Duo Mac"));
-        case kAudioObjectPropertyOwnedObjects: case kAudioPlugInPropertyDeviceList:
-            if (inDataSize < sizeof(AudioObjectID)) { *outDataSize = 0; return 0; }
-            RETURN_VALUE(AudioObjectID, kObjectID_Device);
+        case kAudioObjectPropertyOwnedObjects: case kAudioPlugInPropertyDeviceList: {
+            AudioObjectID ids[2] = { kObjectID_Mic, kObjectID_Feed };
+            UInt32 n = inDataSize / sizeof(AudioObjectID);
+            if (n > 2) n = 2;
+            memcpy(outData, ids, n * sizeof(AudioObjectID));
+            *outDataSize = n * sizeof(AudioObjectID);
+            return 0;
+        }
         case kAudioPlugInPropertyTranslateUIDToDevice: {
             AudioObjectID r = kAudioObjectUnknown;
-            if (qSize == sizeof(CFStringRef) && q && *(CFStringRef*)q && CFStringCompare(*(CFStringRef*)q, CFSTR(kDeviceUID), 0) == kCFCompareEqualTo)
-                r = kObjectID_Device;
+            CFStringRef uid = (qSize == sizeof(CFStringRef) && q) ? *(CFStringRef*)q : NULL;
+            if (uid && CFStringCompare(uid, CFSTR(kMicUID), 0) == kCFCompareEqualTo) r = kObjectID_Mic;
+            if (uid && CFStringCompare(uid, CFSTR(kFeedUID), 0) == kCFCompareEqualTo) r = kObjectID_Feed;
             RETURN_VALUE(AudioObjectID, r);
         }
         case kAudioPlugInPropertyResourceBundle: RETURN_VALUE(CFStringRef, CFSTR(""));
         }
-    } else if (id == kObjectID_Device) {
+    } else if (IsDevice(id)) {
+        bool mic = id == kObjectID_Mic;
         switch (a->mSelector) {
         case kAudioObjectPropertyBaseClass: RETURN_VALUE(AudioClassID, kAudioObjectClassID);
         case kAudioObjectPropertyClass: RETURN_VALUE(AudioClassID, kAudioDeviceClassID);
         case kAudioObjectPropertyOwner: RETURN_VALUE(AudioObjectID, kObjectID_PlugIn);
-        case kAudioObjectPropertyName: RETURN_VALUE(CFStringRef, CFSTR("Duo Mac Microphone"));
+        case kAudioObjectPropertyName: RETURN_VALUE(CFStringRef, mic ? CFSTR("Duo Mac Microphone") : CFSTR("Duo Mac Microphone Feed"));
         case kAudioObjectPropertyManufacturer: RETURN_VALUE(CFStringRef, CFSTR("Duo Mac"));
-        case kAudioDevicePropertyDeviceUID: RETURN_VALUE(CFStringRef, CFSTR(kDeviceUID));
+        case kAudioDevicePropertyDeviceUID: RETURN_VALUE(CFStringRef, mic ? CFSTR(kMicUID) : CFSTR(kFeedUID));
         case kAudioDevicePropertyModelUID: RETURN_VALUE(CFStringRef, CFSTR(kModelUID));
         case kAudioDevicePropertyTransportType: RETURN_VALUE(UInt32, kAudioDeviceTransportTypeVirtual);
-        case kAudioDevicePropertyRelatedDevices: RETURN_VALUE(AudioObjectID, kObjectID_Device);
-        case kAudioDevicePropertyClockDomain: RETURN_VALUE(UInt32, 0);
+        case kAudioDevicePropertyRelatedDevices: RETURN_VALUE(AudioObjectID, id);
+        case kAudioDevicePropertyClockDomain: RETURN_VALUE(UInt32, kClockDomain);
         case kAudioDevicePropertyDeviceIsAlive: RETURN_VALUE(UInt32, 1);
         case kAudioDevicePropertyDeviceIsRunning: {
             pthread_mutex_lock(&gStateMutex);
-            UInt32 running = gIOCount > 0;
+            UInt32 running = gIOCount[mic ? 0 : 1] > 0;
             pthread_mutex_unlock(&gStateMutex);
             RETURN_VALUE(UInt32, running);
         }
-        // A microphone, never a speaker: only the input side can be a default device.
-        case kAudioDevicePropertyDeviceCanBeDefaultDevice: RETURN_VALUE(UInt32, a->mScope == kAudioObjectPropertyScopeInput);
+        // Only the microphone can be a default device (an input); the feed is for Duo Mac alone.
+        case kAudioDevicePropertyDeviceCanBeDefaultDevice: RETURN_VALUE(UInt32, mic && a->mScope == kAudioObjectPropertyScopeInput);
         case kAudioDevicePropertyDeviceCanBeDefaultSystemDevice: RETURN_VALUE(UInt32, 0);
         case kAudioDevicePropertyLatency: RETURN_VALUE(UInt32, kLatencyFrames);
         case kAudioDevicePropertySafetyOffset: RETURN_VALUE(UInt32, kSafetyFrames);
-        case kAudioDevicePropertyIsHidden: RETURN_VALUE(UInt32, 0);
+        case kAudioDevicePropertyIsHidden: RETURN_VALUE(UInt32, mic ? 0 : 1);
         case kAudioDevicePropertyZeroTimeStampPeriod: RETURN_VALUE(UInt32, kRingFrames);
         case kAudioDevicePropertyNominalSampleRate: RETURN_VALUE(Float64, kSampleRate);
         case kAudioDevicePropertyAvailableNominalSampleRates: {
@@ -320,14 +339,10 @@ static OSStatus DM_GetPropertyData(AudioServerPlugInDriverRef inDriver, AudioObj
         }
         case kAudioObjectPropertyControlList: *outDataSize = 0; return 0;
         case kAudioObjectPropertyOwnedObjects: case kAudioDevicePropertyStreams: {
-            AudioObjectID ids[2]; UInt32 n = 0;
-            if (a->mSelector == kAudioObjectPropertyOwnedObjects || a->mScope != kAudioObjectPropertyScopeOutput) ids[n++] = kObjectID_Stream_Input;
-            if (a->mSelector == kAudioObjectPropertyOwnedObjects || a->mScope != kAudioObjectPropertyScopeInput) ids[n++] = kObjectID_Stream_Output;
-            UInt32 fit = inDataSize / sizeof(AudioObjectID);
-            if (n > fit) n = fit;
-            memcpy(outData, ids, n * sizeof(AudioObjectID));
-            *outDataSize = n * sizeof(AudioObjectID);
-            return 0;
+            bool none = a->mSelector == kAudioDevicePropertyStreams
+                && ((mic && a->mScope == kAudioObjectPropertyScopeOutput) || (!mic && a->mScope == kAudioObjectPropertyScopeInput));
+            if (none || inDataSize < sizeof(AudioObjectID)) { *outDataSize = 0; return 0; }
+            RETURN_VALUE(AudioObjectID, mic ? kObjectID_Mic_Stream : kObjectID_Feed_Stream);
         }
         case kAudioDevicePropertyPreferredChannelsForStereo: {
             if (inDataSize < 2 * sizeof(UInt32)) return kAudioHardwareBadPropertySizeError;
@@ -348,15 +363,15 @@ static OSStatus DM_GetPropertyData(AudioServerPlugInDriverRef inDriver, AudioObj
         }
         }
     } else if (IsStream(id)) {
-        bool input = id == kObjectID_Stream_Input;
+        bool input = id == kObjectID_Mic_Stream;
         switch (a->mSelector) {
         case kAudioObjectPropertyBaseClass: RETURN_VALUE(AudioClassID, kAudioObjectClassID);
         case kAudioObjectPropertyClass: RETURN_VALUE(AudioClassID, kAudioStreamClassID);
-        case kAudioObjectPropertyOwner: RETURN_VALUE(AudioObjectID, kObjectID_Device);
+        case kAudioObjectPropertyOwner: RETURN_VALUE(AudioObjectID, input ? kObjectID_Mic : kObjectID_Feed);
         case kAudioObjectPropertyOwnedObjects: *outDataSize = 0; return 0;
         case kAudioStreamPropertyIsActive: {
             pthread_mutex_lock(&gStateMutex);
-            UInt32 v = input ? gInputActive : gOutputActive;
+            UInt32 v = input ? gMicStreamActive : gFeedStreamActive;
             pthread_mutex_unlock(&gStateMutex);
             RETURN_VALUE(UInt32, v);
         }
@@ -382,15 +397,15 @@ static OSStatus DM_SetPropertyData(AudioServerPlugInDriverRef inDriver, AudioObj
                                    UInt32 qSize, const void* q, UInt32 inDataSize, const void* inData) {
     (void)pid; (void)qSize; (void)q;
     if (inDriver != gDriverRef || !a || !inData) return kAudioHardwareIllegalOperationError;
-    if (id == kObjectID_Device && a->mSelector == kAudioDevicePropertyNominalSampleRate) {
+    if (IsDevice(id) && a->mSelector == kAudioDevicePropertyNominalSampleRate) {
         if (inDataSize < sizeof(Float64)) return kAudioHardwareBadPropertySizeError;
         return *(const Float64*)inData == kSampleRate ? 0 : kAudioHardwareIllegalOperationError;
     }
     if (IsStream(id) && a->mSelector == kAudioStreamPropertyIsActive) {
         if (inDataSize < sizeof(UInt32)) return kAudioHardwareBadPropertySizeError;
         pthread_mutex_lock(&gStateMutex);
-        if (id == kObjectID_Stream_Input) gInputActive = *(const UInt32*)inData != 0;
-        else gOutputActive = *(const UInt32*)inData != 0;
+        if (id == kObjectID_Mic_Stream) gMicStreamActive = *(const UInt32*)inData != 0;
+        else gFeedStreamActive = *(const UInt32*)inData != 0;
         pthread_mutex_unlock(&gStateMutex);
         return 0;
     }
@@ -407,47 +422,43 @@ static OSStatus DM_SetPropertyData(AudioServerPlugInDriverRef inDriver, AudioObj
 
 static OSStatus DM_StartIO(AudioServerPlugInDriverRef inDriver, AudioObjectID id, UInt32 client) {
     (void)client;
-    if (inDriver != gDriverRef || id != kObjectID_Device) return kAudioHardwareBadObjectError;
+    if (inDriver != gDriverRef || !IsDevice(id)) return kAudioHardwareBadObjectError;
     pthread_mutex_lock(&gStateMutex);
-    if (gIOCount++ == 0) {
-        gNumberTimeStamps = 0;
-        gAnchorHostTime = mach_absolute_time();
-        memset(gRing, 0, sizeof gRing);
-    }
+    gIOCount[id == kObjectID_Mic ? 0 : 1]++;
     pthread_mutex_unlock(&gStateMutex);
     return 0;
 }
 
 static OSStatus DM_StopIO(AudioServerPlugInDriverRef inDriver, AudioObjectID id, UInt32 client) {
     (void)client;
-    if (inDriver != gDriverRef || id != kObjectID_Device) return kAudioHardwareBadObjectError;
+    if (inDriver != gDriverRef || !IsDevice(id)) return kAudioHardwareBadObjectError;
     pthread_mutex_lock(&gStateMutex);
-    if (gIOCount > 0) gIOCount--;
+    UInt32* n = &gIOCount[id == kObjectID_Mic ? 0 : 1];
+    if (*n > 0) (*n)--;
+    if (gIOCount[0] == 0 && gIOCount[1] == 0) memset(gRing, 0, sizeof gRing);
     pthread_mutex_unlock(&gStateMutex);
     return 0;
 }
 
+/// Both devices share one clock, anchored when the driver loaded, so a sample time means the same
+/// moment on each: what the feed writes at time t is what the microphone reads at time t.
 static OSStatus DM_GetZeroTimeStamp(AudioServerPlugInDriverRef inDriver, AudioObjectID id, UInt32 client,
                                     Float64* outSampleTime, UInt64* outHostTime, UInt64* outSeed) {
     (void)client;
-    if (inDriver != gDriverRef || id != kObjectID_Device) return kAudioHardwareBadObjectError;
-    pthread_mutex_lock(&gStateMutex);
-    UInt64 now = mach_absolute_time();
+    if (inDriver != gDriverRef || !IsDevice(id)) return kAudioHardwareBadObjectError;
     Float64 ticksPerRing = gHostTicksPerFrame * (Float64)kRingFrames;
-    UInt64 next = gAnchorHostTime + (UInt64)((Float64)(gNumberTimeStamps + 1) * ticksPerRing);
-    if (next <= now) gNumberTimeStamps++;
-    *outSampleTime = (Float64)(gNumberTimeStamps * kRingFrames);
-    *outHostTime = gAnchorHostTime + (UInt64)((Float64)gNumberTimeStamps * ticksPerRing);
+    UInt64 periods = (UInt64)((Float64)(mach_absolute_time() - gAnchorHostTime) / ticksPerRing);
+    *outSampleTime = (Float64)(periods * kRingFrames);
+    *outHostTime = gAnchorHostTime + (UInt64)((Float64)periods * ticksPerRing);
     *outSeed = 1;
-    pthread_mutex_unlock(&gStateMutex);
     return 0;
 }
 
 static OSStatus DM_WillDoIOOperation(AudioServerPlugInDriverRef inDriver, AudioObjectID id, UInt32 client, UInt32 op,
                                      Boolean* outWillDo, Boolean* outInPlace) {
     (void)client;
-    if (inDriver != gDriverRef || id != kObjectID_Device) return kAudioHardwareBadObjectError;
-    *outWillDo = (op == kAudioServerPlugInIOOperationReadInput || op == kAudioServerPlugInIOOperationWriteMix);
+    if (inDriver != gDriverRef || !IsDevice(id)) return kAudioHardwareBadObjectError;
+    *outWillDo = id == kObjectID_Mic ? op == kAudioServerPlugInIOOperationReadInput : op == kAudioServerPlugInIOOperationWriteMix;
     *outInPlace = true;
     return 0;
 }
@@ -460,13 +471,13 @@ static OSStatus DM_BeginIOOperation(AudioServerPlugInDriverRef d, AudioObjectID 
 static OSStatus DM_DoIOOperation(AudioServerPlugInDriverRef inDriver, AudioObjectID id, AudioObjectID stream, UInt32 client,
                                  UInt32 op, UInt32 frames, const AudioServerPlugInIOCycleInfo* cycle, void* main, void* secondary) {
     (void)client; (void)secondary;
-    if (inDriver != gDriverRef || id != kObjectID_Device || !main) return kAudioHardwareBadObjectError;
+    if (inDriver != gDriverRef || !IsDevice(id) || !main) return kAudioHardwareBadObjectError;
     float* buf = main;
-    if (op == kAudioServerPlugInIOOperationWriteMix && stream == kObjectID_Stream_Output) {
-        // What Duo Mac plays goes into the ring at its sample time…
+    if (op == kAudioServerPlugInIOOperationWriteMix && stream == kObjectID_Feed_Stream) {
+        // What Duo Mac plays into the feed goes into the ring at its sample time…
         UInt64 t = (UInt64)cycle->mOutputTime.mSampleTime;
         for (UInt32 i = 0; i < frames; i++) gRing[(t + i) % kRingFrames] = buf[i];
-    } else if (op == kAudioServerPlugInIOOperationReadInput && stream == kObjectID_Stream_Input) {
+    } else if (op == kAudioServerPlugInIOOperationReadInput && stream == kObjectID_Mic_Stream) {
         // …and comes back out as microphone input. Read samples are cleared, so the microphone is
         // silent (not a looping echo) when nothing is playing into it.
         UInt64 t = (UInt64)cycle->mInputTime.mSampleTime;

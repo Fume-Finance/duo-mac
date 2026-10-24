@@ -692,7 +692,7 @@ final class NanoCore {
             "test": options.testPattern,
             "dryRun": injector.dryRun,
             "perms": ["screen": screenOK, "input": inputOK],
-            "mic": ["installed": Microphone.isInstalled],
+            "mic": ["installed": Microphone.isInstalled, "update": Microphone.needsUpdate],
         ]
     }
 
@@ -726,6 +726,7 @@ final class NanoCore {
         model.dryRun = injector.dryRun
         model.keyboardLayout = keymap.layoutName + (keymap.iso ? " · ISO" : "")
         model.micInstalled = Microphone.isInstalled
+        model.micNeedsUpdate = Microphone.needsUpdate
         refreshPermissions()
     }
 
@@ -741,13 +742,20 @@ final class NanoCore {
 
     /// The phone turned its microphone on or off (or went away). main thread
     func setMicrophone(_ on: Bool, for s: Session? = nil) {
+        Log.info("Microphone: the iPhone turned it \(on ? "on" : "off")")
         if on {
             let ok = microphone.start()
-            server.queue.async { s?.send(["t": "mic", "on": ok, "installed": Microphone.isInstalled]) }
+            server.queue.async { s?.send(["t": "mic", "on": ok, "installed": Microphone.isInstalled, "update": Microphone.needsUpdate]) }
         } else {
             microphone.stop()
         }
         model.micActive = microphone.active
+    }
+
+    /// The microphone was just installed (or updated): tell the phone, so its setting works right away.
+    func microphoneInstalled() {
+        let msg: [String: Any] = ["t": "mic", "installed": Microphone.isInstalled, "update": Microphone.needsUpdate, "status": true]
+        server.queue.async { self.session?.send(msg) }
     }
 
     /// main thread

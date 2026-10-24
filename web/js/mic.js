@@ -5,14 +5,8 @@
 const RATE = 24000;
 const CHUNK = 480; // 20 ms
 
-const WORKLET = `class DuoMic extends AudioWorkletProcessor {
-  process(inputs) {
-    const ch = inputs[0] && inputs[0][0];
-    if (ch) this.port.postMessage(ch.slice(0));
-    return true;
-  }
-}
-registerProcessor('duo-mic', DuoMic);`;
+/** Rejects if `p` takes longer than `ms` (iOS sometimes leaves audio promises hanging). */
+const within = (p, ms, what) => Promise.race([p, new Promise((_, no) => setTimeout(() => no(new Error(`${what} timed out`)), ms))]);
 
 export class Mic {
   constructor(send) {
@@ -42,15 +36,15 @@ export class Mic {
   async open() {
     // The context first, while we're still inside the tap.
     this.ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const resumed = this.ctx.resume();
+    this.ctx.resume().catch(() => {});
+    // No timeout here: the first time, iOS waits for the person to answer its permission prompt.
     this.stream = await navigator.mediaDevices.getUserMedia({
       audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
     });
-    await resumed;
+    // Answering the prompt can interrupt the context; start it again.
+    if (this.ctx.state !== 'running') await within(this.ctx.resume(), 3000, 'audio start');
     const src = this.ctx.createMediaStreamSource(this.stream);
-    const url = URL.createObjectURL(new Blob([WORKLET], { type: 'application/javascript' }));
-    await this.ctx.audioWorklet.addModule(url);
-    URL.revokeObjectURL(url);
+    await within(this.ctx.audioWorklet.addModule(new URL('./mic-worklet.js', import.meta.url)), 5000, 'audio worklet');
     this.node = new AudioWorkletNode(this.ctx, 'duo-mic');
     this.node.port.onmessage = (e) => this.push(e.data);
     // A silent path to the output keeps the graph running.

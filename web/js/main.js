@@ -250,7 +250,7 @@ function sheetInfo() {
   return {
     mac: cfg?.mac, display: cfg?.display, test: cfg?.test,
     displays: cfg?.displays, displayIndex: cfg?.displayIndex, nanoActive: !!cfg?.nano,
-    layout: cfg?.keyboard?.layout, connected: link.open, rtt: link.rtt, device, micInstalled: cfg?.mic?.installed, micOn: mic.running,
+    layout: cfg?.keyboard?.layout, connected: link.open, rtt: link.rtt, device, micInstalled: cfg?.mic?.installed, micUpdate: cfg?.mic?.update, micOn: mic.running,
   };
 }
 
@@ -428,7 +428,17 @@ onSetting((k, v) => {
       link.send({ t: 'nano', ...nanoRequest(), box: lastBox });
     }, 700);
   }
-  if (k === 'mic') { micDenied = false; v ? micOn() : micOff(); }
+  if (k === 'mic') {
+    micDenied = false;
+    if (v && cfg?.mic && !cfg.mic.installed) {
+      // Nothing on the Mac to hear it yet: say where to get it instead of turning on for nothing.
+      setSetting('mic', false);
+      sheet.update(sheetInfo());
+      showBanner(micMissing(), 'warn', 8000);
+      return;
+    }
+    v ? micOn() : micOff();
+  }
   if (k === 'quality') link.send({ t: 'quality', q: v });
   if (k === 'stats') statsEl.hidden = !v;
   if (k === 'fnStandard') keyboard.renderFnRow();
@@ -940,9 +950,18 @@ link = new Link({
         if (cfg) cfg.perms = { screen: m.screen, input: m.input };
         break;
       case 'mic':
+        if (cfg) cfg.mic = { installed: m.installed, update: m.update };
+        if (m.status) { // just installed on the Mac
+          sheet.update(sheetInfo());
+          if (m.installed) showBanner('The Duo Mac Microphone is ready. Turn it on in Settings › Microphone.', 'info', 5000);
+          break;
+        }
+        remoteLog('info', [`mic: the Mac says on=${m.on} installed=${m.installed}`]);
         if (!m.on) {
           mic.stop();
-          showBanner(m.installed ? 'The Mac couldn’t use the iPhone microphone.' : 'Add the Duo Mac Microphone on your Mac first: menu bar › Settings… › General.', 'warn', 7000);
+          setSetting('mic', false);
+          sheet.update(sheetInfo());
+          showBanner(m.installed ? 'The Mac couldn’t use the iPhone microphone.' : micMissing(), 'warn', 8000);
         }
         break;
       case 'notice':
@@ -982,12 +1001,18 @@ function sendHello() {
 // ───── The iPhone's microphone, for the Mac ─────
 const mic = new Mic((buf) => link.sendBinary(buf));
 let micDenied = false;
+const micMissing = () => cfg?.mic?.update
+  ? 'Update the Duo Mac Microphone on your Mac first: menu bar › Settings… › General › Update….'
+  : 'Add the Duo Mac Microphone on your Mac first: menu bar › Settings… › General › Install….';
 async function micOn() {
+  remoteLog('info', ['mic: starting']);
   if (!(await mic.start())) {
     micDenied = true; // don't ask again on every tap; flipping the setting retries
+    remoteLog('warn', [`mic: couldn't start: ${mic.error}`]);
     showBanner(mic.error === 'NotAllowedError' ? 'Microphone access was denied. Allow it for this app in iPhone Settings, then turn it on again.' : `Couldn’t start the microphone (${mic.error}).`, 'warn', 7000);
     return;
   }
+  remoteLog('info', [`mic: on at ${mic.ctx?.sampleRate} Hz`]);
   link.send({ t: 'mic', on: true });
 }
 function micOff() {

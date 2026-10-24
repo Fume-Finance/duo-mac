@@ -721,6 +721,7 @@ button { font: inherit; color: inherit; }
 .item:first-child { border-top: 0; }
 .item label, .item .l { flex: 1; color: #ececf0; }
 .item small { display: block; color: #8f8f97; font-size: 11px; margin-top: 1px; }
+.item small.warn { color: #ff9f0a; }
 .item input[type=range] { width: 46%; accent-color: #0a84ff; }
 .item input[type=checkbox] { accent-color: #30d158; }
 .item input[type=checkbox]:not([switch]) { width: 22px; height: 22px; }

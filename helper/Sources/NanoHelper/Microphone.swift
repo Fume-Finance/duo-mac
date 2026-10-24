@@ -3,11 +3,12 @@ import CoreAudio
 import Foundation
 
 /// The iPhone's microphone, as a Mac microphone. The phone streams 16-bit, 24 kHz mono audio; this
-/// plays it into "Duo Mac Microphone" (driver/DuoMacMicrophone.c, a loopback device), whose input
-/// side every app can record from. While it's on, that device is the Mac's default input; the
-/// previous one comes back when it stops.
+/// plays it into the hidden "Duo Mac Microphone Feed", which comes back out of "Duo Mac Microphone"
+/// (driver/DuoMacMicrophone.c, a loopback) for every app to record from. While it's on, that
+/// microphone is the Mac's default input; the previous one comes back when it stops.
 final class Microphone {
     static let deviceUID = "DuoMacMicrophone_UID"
+    static let feedUID = "DuoMacMicrophoneFeed_UID"
     static let driverName = "DuoMacMicrophone.driver"
     static let installedPath = "/Library/Audio/Plug-Ins/HAL/" + driverName
 
@@ -19,11 +20,12 @@ final class Microphone {
     private var engine: AVAudioEngine?
     private var previousInput: AudioDeviceID?
     private(set) var active = false
+    private var received = 0 // chunks from the phone since start (logged now and then)
 
     // MARK: The device
 
-    static func deviceID() -> AudioDeviceID? {
-        var uid = deviceUID as CFString
+    static func deviceID(_ uid: String = deviceUID) -> AudioDeviceID? {
+        var uid = uid as CFString
         var id = AudioDeviceID(0)
         var size = UInt32(MemoryLayout<AudioDeviceID>.size)
         var addr = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyTranslateUIDToDevice,
@@ -35,7 +37,9 @@ final class Microphone {
         return status == noErr && id != kAudioObjectUnknown ? id : nil
     }
 
-    static var isInstalled: Bool { deviceID() != nil }
+    /// Both devices are there. The first driver had a single device (no feed): it needs updating.
+    static var isInstalled: Bool { deviceID() != nil && deviceID(feedUID) != nil }
+    static var needsUpdate: Bool { deviceID() != nil && deviceID(feedUID) == nil }
 
     private static var defaultInputAddress = AudioObjectPropertyAddress(
         mSelector: kAudioHardwarePropertyDefaultInputDevice, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
@@ -84,7 +88,10 @@ final class Microphone {
 
     func start() -> Bool {
         if active { return true }
-        guard let dev = Microphone.deviceID() else { return false }
+        guard let dev = Microphone.deviceID(), let feed = Microphone.deviceID(Microphone.feedUID) else {
+            Log.warn("Microphone: the Duo Mac Microphone is \(Microphone.needsUpdate ? "out of date" : "not installed")")
+            return false
+        }
         let engine = AVAudioEngine()
         guard let fmt = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 1) else { return false }
         let source = AVAudioSourceNode(format: fmt) { [weak self] _, _, frames, abl in
@@ -95,9 +102,10 @@ final class Microphone {
         }
         engine.attach(source)
         engine.connect(source, to: engine.mainMixerNode, format: fmt)
-        // Play into the Duo Mac Microphone, not the speakers.
+        // Play into the feed, not the speakers. (Never into the microphone itself: opening a device
+        // with an input would count as recording, and macOS would stop here to ask for permission.)
         guard let au = engine.outputNode.audioUnit else { return false }
-        var id = dev
+        var id = feed
         let set = AudioUnitSetProperty(au, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0,
                                        &id, UInt32(MemoryLayout<AudioDeviceID>.size))
         guard set == noErr else { Log.warn("Microphone: can't select the device (\(set))"); return false }
@@ -107,6 +115,7 @@ final class Microphone {
         }
         self.engine = engine
         active = true
+        received = 0
         if let cur = Microphone.defaultInput(), cur != dev {
             previousInput = cur
             Microphone.setDefaultInput(dev)
@@ -135,6 +144,8 @@ final class Microphone {
     /// 16-bit little-endian samples at 24 kHz from the phone (any thread).
     func feed(_ data: Data) {
         guard active else { return }
+        received += 1
+        if received == 1 || received % 3000 == 0 { Log.info("Microphone: \(received) chunks from the iPhone") } // every minute
         lock.lock(); defer { lock.unlock() }
         data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
             for i in 0..<(raw.count / 2) {

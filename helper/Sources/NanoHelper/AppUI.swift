@@ -42,6 +42,7 @@ final class AppModel: ObservableObject {
     @Published var phoneBrowser: PhoneBrowser?
     @Published var micInstalled = false
     @Published var micActive = false
+    @Published var micNeedsUpdate = false
 }
 
 /// Things the window's buttons do.
@@ -66,6 +67,7 @@ struct StatusActions {
         }
         Microphone.install(from: src) { ok, message in
             self.core.refreshModel()
+            self.core.microphoneInstalled()
             Log.info("Microphone install: \(ok ? "done" : "failed: \(message ?? "")")")
             if !ok, let message, !message.contains("-128") { // -128: cancelled
                 let a = NSAlert()

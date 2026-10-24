@@ -372,11 +372,12 @@ struct GeneralPage: View {
                         Text("iPhone microphone")
                         Text(model.micInstalled
                              ? (model.micActive ? "In use: Mac apps hear your iPhone." : "Turn it on in the Duo Mac settings on your iPhone.")
+                             : model.micNeedsUpdate ? "This version of Duo Mac needs a newer Duo Mac Microphone."
                              : "Let Mac apps (dictation, calls, voice mode) hear your iPhone's microphone.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
-                    if !model.micInstalled { Button("Install…", action: actions.installMicrophone) }
+                    if !model.micInstalled { Button(model.micNeedsUpdate ? "Update…" : "Install…", action: actions.installMicrophone) }
                     else { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green) }
                 }
             }
