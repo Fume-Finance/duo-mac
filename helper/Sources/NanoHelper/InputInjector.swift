@@ -208,6 +208,47 @@ final class InputInjector {
         e.post(tap: .cghidEventTap)
     }
 
+    // MARK: Pinch
+
+    /// A trackpad pinch, as the Mac sees one: the app under the pointer zooms (a web page, a map, a
+    /// photo), not the whole screen. There is no public API for trackpad gestures, so these are the
+    /// gesture events a real trackpad sends, built from CGEvent's undocumented gesture fields (the
+    /// recipe Hammerspoon and others use). phase: "b" began, "c" changed (by `amount`, e.g. 0.03 =
+    /// 3% bigger), "e" ended.
+    func magnify(phase: String, amount: Double) {
+        lock.lock(); defer { lock.unlock() }
+        if phase == "b" { record("pinch") }
+        if dryRun { return }
+        let at = locationLocked()
+        func post(hid: Int64, phase p: Int64 = 0, zoom: Double = 0) {
+            guard let e = CGEvent(source: source) else { return }
+            e.type = Self.gestureType
+            e.location = at
+            e.setIntegerValueField(Self.gestureHIDType, value: hid)
+            if hid == Self.hidZoom {
+                e.setIntegerValueField(Self.gesturePhase, value: p)
+                e.setDoubleValueField(Self.gestureZoom, value: zoom)
+            }
+            e.post(tap: .cghidEventTap)
+        }
+        switch phase {
+        case "b":
+            post(hid: Self.hidBeginGesture)
+            post(hid: Self.hidZoom, phase: 1)
+        case "c":
+            post(hid: Self.hidZoom, phase: 2, zoom: max(-0.5, min(0.5, amount)))
+        default:
+            post(hid: Self.hidZoom, phase: 4)
+            post(hid: Self.hidEndGesture)
+        }
+    }
+
+    private static let gestureType = CGEventType(rawValue: 29)!               // NSEventTypeGesture
+    private static let gestureHIDType = CGEventField(rawValue: 110)!          // kCGSEventGestureHIDType
+    private static let gestureZoom = CGEventField(rawValue: 113)!             // kCGSEventGestureZoomValue
+    private static let gesturePhase = CGEventField(rawValue: 132)!            // kCGSEventGesturePhase
+    private static let hidZoom: Int64 = 8, hidBeginGesture: Int64 = 61, hidEndGesture: Int64 = 62
+
     // MARK: Keyboard
 
     func key(_ code: UInt16, down: Bool, flags: CGEventFlags, isRepeat: Bool) {

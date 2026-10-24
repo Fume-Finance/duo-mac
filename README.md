@@ -89,7 +89,7 @@ Duo Mac lives in the **menu bar**. Its panel shows the connected iPhone and the 
 | tap, then touch again and drag | drag (window, selection, file…) |
 | 2-finger tap | right-click |
 | 2 fingers | scroll, with momentum |
-| pinch | zoom the iPhone's screen (it follows the pointer) |
+| pinch | zoom, like a MacBook trackpad: the page or app under the pointer zooms |
 | 3- or 4-finger swipe ↑ / ↓ / ← → | Mission Control / App Exposé / switch Spaces |
 
 **Screen** (top half, or the whole phone in *Screen only*): tap to click exactly there, drag to drag, 2 fingers to scroll (with momentum), pinch to zoom, 2-finger tap to right-click, 3 or 4 fingers to swipe for Mission Control, App Exposé and Spaces. *Screen only* fills the whole phone, edge to edge, and reshapes when you rotate it. In *Screen only*, tapping a text field on the Mac brings up the iPhone's own keyboard, and you can choose to use the whole screen as a trackpad instead (Settings › Display › *Touching the screen*): slide to move the pointer, tap to click, with all the trackpad gestures.

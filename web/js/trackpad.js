@@ -5,7 +5,7 @@
 //   tap, then drag ....... drag (mouse button held until you lift)
 //   2-finger tap ......... right-click
 //   2-finger move ........ scroll (with momentum)
-//   pinch ................ zoom the screen half (locally)
+//   pinch ................ zoom (the Mac's own pinch: the app under the pointer zooms)
 //   3-finger swipe ....... Mission Control / App Exposé / switch Spaces
 //
 // Real fingers rarely land or lift at the same instant, so:

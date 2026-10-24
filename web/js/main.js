@@ -127,7 +127,6 @@ const keyboard = new Keyboard($('#keyboard'), $('#keypop'), {
 });
 
 // ───── Trackpad ─────
-let zoomBase = 1, zoomAnchor = [0, 0];
 function scrollMac(dx, dy) {
   keyboard.markUsed();
   const k = 2.4 * settings.scrollSpeed * (settings.naturalScroll ? 1 : -1);
@@ -141,12 +140,19 @@ function swipeMac(dir) {
   sendNow({ t: 'act', a });
   haptic();
 }
-function zoomScreen(phase, ratio) {
+// A pinch on a trackpad is the Mac's: the page or app under the pointer zooms, as on a MacBook.
+let pinchLast = 1;
+function zoomMac(phase, ratio) {
   if (phase === 'start') {
-    zoomBase = screen.zoom.s;
-    zoomAnchor = screen.cursorAnchor();
+    pinchLast = 1;
+    sendNow({ t: 'z', p: 'b' });
   } else if (phase === 'change') {
-    screen.setZoom(zoomBase * ratio, zoomAnchor[0], zoomAnchor[1]);
+    const m = ratio / pinchLast - 1;
+    if (Math.abs(m) < 0.002) return;
+    pinchLast = ratio;
+    sendNow({ t: 'z', p: 'c', m: +m.toFixed(4) });
+  } else {
+    sendNow({ t: 'z', p: 'e' });
   }
 }
 const trackpad = new Trackpad($('#padzone'), $('#trackpad'), {
@@ -154,7 +160,7 @@ const trackpad = new Trackpad($('#padzone'), $('#trackpad'), {
   probe: () => probeText(),
   tapped: (id) => tappedText(id),
   scroll: scrollMac,
-  zoom: zoomScreen,
+  zoom: zoomMac,
   swipe3: swipeMac,
   touched() {
     keyboard.markUsed();
@@ -213,7 +219,7 @@ const lidTouch = new LidTouch($('#screen-area'), screen, {
   ...pointer, scroll: scrollMac, swipe3: swipeMac, probe: probeText, tapped: tappedText, enabled: () => !screenIsPad(),
 });
 const screenPad = new Trackpad($('#screen-area'), $('#screen-area'), {
-  ...pointer, probe: () => probeText(), tapped: (id) => tappedText(id), scroll: scrollMac, zoom: zoomScreen, swipe3: swipeMac,
+  ...pointer, probe: () => probeText(), tapped: (id) => tappedText(id), scroll: scrollMac, zoom: zoomMac, swipe3: swipeMac,
   touched: () => keyboard.markUsed(), enabled: screenIsPad,
 });
 

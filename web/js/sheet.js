@@ -125,7 +125,7 @@ const GESTURES = {
     ['Drag', 'Tap, then slide', pad(`<rect x="24" y="12" width="14" height="10" rx="2" class="gwin g-dragwin"/>${finger(31, 31, 'g-drag')}`)],
     ['Right-click', 'Tap with 2 fingers', pad(finger(33, 25, 'g-tap') + finger(47, 25, 'g-tap'))],
     ['Scroll', 'Slide 2 fingers', pad(`<g class="g-scroll">${finger(33, 25)}${finger(47, 25)}</g>`)],
-    ['Zoom the screen', 'Pinch', pad(finger(36, 27, 'g-pinch-l') + finger(44, 23, 'g-pinch-r'))],
+    ['Zoom in the app', 'Pinch', pad(finger(36, 27, 'g-pinch-l') + finger(44, 23, 'g-pinch-r'))],
     ['Mission Control', '3 fingers up', pad(`<g class="g-up">${finger(28, 27)}${finger(40, 25)}${finger(52, 27)}</g>`)],
     ['Switch Spaces', '3 fingers sideways', pad(`<g class="g-side">${finger(28, 27)}${finger(40, 25)}${finger(52, 27)}</g>`)],
   ],
