@@ -92,7 +92,7 @@ Duo Mac lives in the **menu bar**. Its panel shows the connected iPhone and the 
 | pinch | zoom the iPhone's screen (it follows the pointer) |
 | 3- or 4-finger swipe ↑ / ↓ / ← → | Mission Control / App Exposé / switch Spaces |
 
-**Screen** (top half, or the whole phone in *Screen only*): tap to click exactly there, drag to drag, 2 fingers to scroll (with momentum), pinch to zoom, 2-finger tap to right-click, 3 or 4 fingers to swipe for Mission Control, App Exposé and Spaces. *Screen only* fills the whole phone, edge to edge.
+**Screen** (top half, or the whole phone in *Screen only*): tap to click exactly there, drag to drag, 2 fingers to scroll (with momentum), pinch to zoom, 2-finger tap to right-click, 3 or 4 fingers to swipe for Mission Control, App Exposé and Spaces. *Screen only* fills the whole phone, edge to edge, and reshapes when you rotate it. In *Screen only*, tapping a text field on the Mac brings up the iPhone's own keyboard.
 
 <img src="docs/images/iphone-settings.png" width="330" align="right" alt="Duo Mac settings on the iPhone: a full-screen page with visual options">
 

@@ -165,7 +165,41 @@ if (settings.hintSeen) $('#trackpad .hint').classList.add('gone');
 addHapticSwitch($('#trackpad'));
 
 // ───── Touch on the screen half ─────
-const lidTouch = new LidTouch($('#screen-area'), screen, { ...pointer, scroll: scrollMac, swipe3: swipeMac });
+// Screen only: tapping a text field on the Mac brings up the iPhone's own keyboard. The finger going
+// down asks the Mac what's under it; the answer is usually back before the finger lifts, and iOS
+// only shows its keyboard from inside the tap. If it's late, a Type button appears instead.
+const hits = new Map();
+let hitSeq = 0, typeBtnTimer = 0;
+function probeText(nx, ny) {
+  if (settings.layout !== 'screen' || !link.open || !iosBar.hidden) return 0;
+  const id = ++hitSeq;
+  hits.set(id, { text: null, tapped: 0 });
+  if (hits.size > 8) hits.delete(hits.keys().next().value);
+  link.send({ t: 'hit', id, x: nx, y: ny });
+  return id;
+}
+function tappedText(id) {
+  const h = hits.get(id);
+  if (!h) return;
+  if (h.text) openIOSKeyboard();
+  else if (h.text === null) h.tapped = performance.now();
+}
+function hitResult(m) {
+  const h = hits.get(m.id);
+  if (!h) return;
+  h.text = !!m.text;
+  if (h.text && h.tapped && performance.now() - h.tapped < 1500 && iosBar.hidden) showTypeButton();
+}
+function showTypeButton() {
+  const b = $('#type-btn');
+  if (!b) return;
+  b.hidden = false;
+  clearTimeout(typeBtnTimer);
+  typeBtnTimer = setTimeout(() => { b.hidden = true; }, 4000);
+}
+$('#type-btn')?.addEventListener('click', () => { $('#type-btn').hidden = true; openIOSKeyboard(); });
+
+const lidTouch = new LidTouch($('#screen-area'), screen, { ...pointer, scroll: scrollMac, swipe3: swipeMac, probe: probeText, tapped: tappedText });
 
 // ───── Settings sheet ─────
 const sheet = new Sheet($('#sheet'), {
@@ -342,10 +376,11 @@ function sendResizeIfNeeded() {
   if (!link.open || !cfg) return;
   const box = screen.boxPixels();
   if (Math.abs(box[0] - lastBox[0]) > lastBox[0] * 0.06 || Math.abs(box[1] - lastBox[1]) > lastBox[1] * 0.06) {
+    // A new shape (the phone rotated, or iOS still growing the viewport just after launch, see
+    // app.css): reshape the Duo display to fill the screen instead of letterboxing it.
+    const reshaped = Math.abs(Math.log((box[0] / box[1]) / (lastBox[0] / lastBox[1]))) > 0.12;
     lastBox = box;
-    // Just after launch iOS can still be growing the viewport (see app.css): reshape the Duo display
-    // to the final screen area instead of letterboxing it for the whole session.
-    if (settings.macDisplay === 'nano' && performance.now() < 6000) link.send({ t: 'nano', ...nanoRequest(), box });
+    if (settings.macDisplay === 'nano' && (performance.now() < 6000 || reshaped)) link.send({ t: 'nano', ...nanoRequest(), box });
     else link.send({ t: 'resize', box });
   }
 }
@@ -813,6 +848,9 @@ link = new Link({
   },
   onMessage(m) {
     switch (m.t) {
+      case 'hit':
+        hitResult(m);
+        break;
       case 'welcome':
         macLabel = m.mac || '';
         passkeyReady.then(startAuth);

@@ -70,6 +70,37 @@ final class InputInjector {
                 y: min(max(p.y, _bounds.minY), _bounds.maxY - 1))
     }
 
+    // MARK: Text fields
+
+    /// Is there somewhere to type at this point of the screen (0…1 coordinates)? An Accessibility
+    /// hit test, so the phone can bring up its own keyboard when you tap a text field.
+    func isTextField(nx: Double, ny: Double) -> Bool {
+        if dryRun { return false }
+        let b = bounds
+        let p = CGPoint(x: b.minX + min(max(nx, 0), 1) * b.width, y: b.minY + min(max(ny, 0), 1) * b.height)
+        let sys = AXUIElementCreateSystemWide()
+        AXUIElementSetMessagingTimeout(sys, 0.3)
+        var hit: AXUIElement?
+        guard AXUIElementCopyElementAtPosition(sys, Float(p.x), Float(p.y), &hit) == .success, var el = hit else { return false }
+        for _ in 0..<3 {
+            if InputInjector.isTextLike(el) { return true }
+            var parent: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(el, kAXParentAttribute as CFString, &parent) == .success,
+                  let pa = parent, CFGetTypeID(pa) == AXUIElementGetTypeID() else { break }
+            el = pa as! AXUIElement
+        }
+        return false
+    }
+
+    private static func isTextLike(_ el: AXUIElement) -> Bool {
+        var role: CFTypeRef?
+        AXUIElementCopyAttributeValue(el, kAXRoleAttribute as CFString, &role)
+        if let r = role as? String, ["AXTextField", "AXTextArea", "AXComboBox", "AXSearchField"].contains(r) { return true }
+        // Web pages' editable areas: a settable text selection.
+        var settable: DarwinBoolean = false
+        return AXUIElementIsAttributeSettable(el, "AXSelectedTextRange" as CFString, &settable) == .success && settable.boolValue
+    }
+
     // MARK: Pointer
 
     func moveBy(dx: Double, dy: Double) {

@@ -242,6 +242,7 @@ export class LidTouch {
     if (this.p.size === 1) {
       const near = now - this.lastTap.t < 350 && Math.hypot(e.clientX - this.lastTap.x, e.clientY - this.lastTap.y) < 30;
       this.g = { start: now, moved: false, count: near ? Math.min(3, this.lastTap.n + 1) : 1, primary: e.pointerId };
+      this.g.probe = this.cb.probe?.(...this.screen.normalized(e.clientX, e.clientY)) || 0; // a text field there?
       this.mode = 'one';
     } else if (this.p.size === 2 && (this.mode === 'one' || this.mode === 'pan') && !this.g.moved) {
       const [a, b] = [...this.p.values()];
@@ -322,6 +323,7 @@ export class LidTouch {
         this.cb.abs(...this.screen.normalized(pt.x, pt.y));
         this.cb.click(0, this.g.count);
         this.lastTap = { t: now, x: pt.x, y: pt.y, n: this.g.count };
+        this.cb.tapped?.(this.g.probe); // still inside the tap, so iOS lets its keyboard come up
       }
       this.mode = this.p.size ? 'tail' : 'none';
     } else if (this.mode === 'drag' && e.pointerId === this.g.primary) {

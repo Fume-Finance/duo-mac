@@ -193,6 +193,14 @@ final class Session {
         case "aux": inj.aux(Int32(clamping: int(m["k"])), down: int(m["d"]) == 1)
         case "act": if let a = m["a"] as? String { inj.action(a) }
         case "rel": inj.releaseAll()
+        case "hit":
+            // Where the phone's finger just went down: is it a text field? (Screen only: the phone
+            // shows its own keyboard.) Off the network queue: Accessibility can be slow.
+            let id = m["id"] ?? 0, x = num(m["x"]), y = num(m["y"])
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                let text = inj.isTextField(nx: x, ny: y)
+                self?.send(["t": "hit", "id": id, "text": text])
+            }
         case "ack": ack(UInt32(truncatingIfNeeded: int(m["f"])))
         case "hello":
             readBox(m["box"])
