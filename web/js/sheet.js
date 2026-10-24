@@ -263,6 +263,12 @@ export class Sheet {
       <button type="button" class="btn" data-act="iosKeyboard">Type…</button></div>
   </div></div>
 
+  <div class="group"><h3>Microphone</h3><div class="box">
+    ${toggle('mic', 'Use this iPhone as the Mac’s microphone', i.micInstalled === false
+      ? 'First add the Duo Mac Microphone on the Mac: menu bar › Settings… › General.'
+      : 'Mac apps (dictation, calls, voice mode) hear this iPhone while Duo Mac is open.')}
+  </div></div>
+
   <div class="group"><h3>Display</h3><div class="box">
     ${cards('macDisplay', 'Mac screen', [['nano', 'Fill', fillArt], ['mirror', 'Mirror as is', mirrorArt]])}
     ${nano ? cards('nanoSize', 'Desktop size', [['large', 'Larger text', sizeArt(4.2)], ['default', 'Default', sizeArt(3)], ['more', 'More space', sizeArt(2.1)]]) : ''}

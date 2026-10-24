@@ -106,6 +106,13 @@ export class Link {
     this.scheduleRetry();
   }
 
+  sendBinary(buf) {
+    const ws = this.ws;
+    if (!ws || ws.readyState !== 1 || ws.bufferedAmount > 256 * 1024) return false; // don't pile up audio on a slow link
+    ws.send(buf);
+    return true;
+  }
+
   send(m) {
     const ws = this.ws;
     if (!ws || ws.readyState !== 1) return false;

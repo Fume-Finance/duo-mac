@@ -153,6 +153,12 @@ final class Session {
                                                  "passkey-register", "pin-set", "pair-finish", "lock", "forget"]
     private static let inputTypes: Set<String> = ["m", "a", "b", "c", "s", "k", "txt", "aux", "act"]
 
+    /// Binary messages: "M" + 16-bit 24 kHz audio from the phone's microphone.
+    func handle(binary data: Data) {
+        guard isAuthed, core.isActive(self), data.first == 0x4D else { return }
+        core.microphone.feed(data.dropFirst())
+    }
+
     func handle(text: String) {
         lastMessageAt = Date()
         guard let data = text.data(using: .utf8),
@@ -193,6 +199,9 @@ final class Session {
         case "aux": inj.aux(Int32(clamping: int(m["k"])), down: int(m["d"]) == 1)
         case "act": if let a = m["a"] as? String { inj.action(a) }
         case "rel": inj.releaseAll()
+        case "mic":
+            let on = (m["on"] as? Bool) ?? false
+            DispatchQueue.main.async { [weak self] in self?.core.setMicrophone(on, for: self) }
         case "hit":
             // Where the phone's finger just went down (or under the pointer, from the trackpad): is it
             // a text field? Without the keyboard layout the phone then shows its own keyboard.

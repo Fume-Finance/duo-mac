@@ -22,6 +22,7 @@ export const DEFAULTS = {
   macDisplay: 'nano',   // nano: a Mac display shaped like this screen (fills it) | mirror: the Mac's own screen
   nanoSize: 'default',  // large (bigger text) | default | more (more space)
   hintSeen: false,
+  mic: false,           // stream this iPhone's microphone to the Mac (the Duo Mac Microphone)
   defaultsRev: 2,       // bumped when a default changes for everyone (see upgrade)
 };
 

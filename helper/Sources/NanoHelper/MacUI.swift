@@ -366,6 +366,21 @@ struct GeneralPage: View {
                 Toggle("Keep the screen on while connected", isOn: Binding(get: { model.keepAwake }, set: actions.setKeepAwake))
             }
             Section {
+                HStack(spacing: 12) {
+                    IconTile(symbol: "mic.fill", tint: model.micActive ? .orange : .pink, size: 28)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("iPhone microphone")
+                        Text(model.micInstalled
+                             ? (model.micActive ? "In use: Mac apps hear your iPhone." : "Turn it on in the Duo Mac settings on your iPhone.")
+                             : "Let Mac apps (dictation, calls, voice mode) hear your iPhone's microphone.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    if !model.micInstalled { Button("Install…", action: actions.installMicrophone) }
+                    else { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green) }
+                }
+            }
+            Section {
                 LabeledContent("Keyboard layout", value: model.keyboardLayout)
                 LabeledContent("Address") {
                     Text(model.tailscale.dnsName ?? "—").textSelection(.enabled).foregroundStyle(.secondary)

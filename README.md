@@ -108,6 +108,8 @@ Duo Mac lives in the **menu bar**. Its panel shows the connected iPhone and the 
 
 **Duo display** (on by default): instead of squeezing your 16:10 screen into the phone's half, the Mac gets an extra display shaped exactly like it, and the Mac's own screen mirrors it. *Desktop size* picks how roomy it is: Larger text, Default or More space. It goes away a minute after the iPhone disconnects (or right away with *Mirror as is*, or when you quit the app).
 
+**iPhone microphone** (optional): Mac apps (dictation, calls, voice modes) can hear the iPhone instead of the Mac. Add the **Duo Mac Microphone** once on the Mac (menu bar › Settings… › General › Install…, asks for your password; sound pauses for a second while Core Audio restarts), then turn on *Use this iPhone as the Mac's microphone* in the iPhone settings. While it's on, the Duo Mac Microphone is the Mac's default input; your usual microphone comes back when it's off or the iPhone disconnects. It's a small loopback audio driver (`driver/`) the phone's audio is played into.
+
 **Away from home**: the Mac must be awake. Turn on **Stay reachable while away** in the menu bar panel and keep it plugged in; a closed MacBook still sleeps unless an external display is connected.
 
 <br clear="right">

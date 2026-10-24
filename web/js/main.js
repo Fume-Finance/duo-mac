@@ -9,6 +9,7 @@ import { Sheet } from './sheet.js';
 import { sound } from './sound.js';
 import { haptic, addHapticSwitch } from './haptics.js';
 import { showInstall, hideInstall, browserName } from './install.js';
+import { Mic } from './mic.js';
 
 const $ = (s) => document.querySelector(s);
 const app = $('#app');
@@ -249,7 +250,7 @@ function sheetInfo() {
   return {
     mac: cfg?.mac, display: cfg?.display, test: cfg?.test,
     displays: cfg?.displays, displayIndex: cfg?.displayIndex, nanoActive: !!cfg?.nano,
-    layout: cfg?.keyboard?.layout, connected: link.open, rtt: link.rtt, device,
+    layout: cfg?.keyboard?.layout, connected: link.open, rtt: link.rtt, device, micInstalled: cfg?.mic?.installed, micOn: mic.running,
   };
 }
 
@@ -427,6 +428,7 @@ onSetting((k, v) => {
       link.send({ t: 'nano', ...nanoRequest(), box: lastBox });
     }, 700);
   }
+  if (k === 'mic') { micDenied = false; v ? micOn() : micOff(); }
   if (k === 'quality') link.send({ t: 'quality', q: v });
   if (k === 'stats') statsEl.hidden = !v;
   if (k === 'fnStandard') keyboard.renderFnRow();
@@ -550,7 +552,11 @@ function powerOn() {
 screen.onFirstFrame = () => { if (powered) reveal(); };
 
 // iOS only lets audio start from a touch *end*; unlock there too.
-app.addEventListener('pointerup', () => sound.unlock(), true);
+app.addEventListener('pointerup', () => {
+  sound.unlock();
+  // The microphone too: iOS only starts it from a tap (after a relaunch, the first one).
+  if (settings.mic && authed && link.open && !mic.running && !micDenied) micOn();
+}, true);
 
 // The first tap anywhere powers the Nano on (and unlocks audio on iOS); it isn't sent to the Mac.
 app.addEventListener('pointerdown', (e) => {
@@ -933,6 +939,12 @@ link = new Link({
         else showBanner('Keyboard and trackpad are off: allow Accessibility for Duo Mac on the Mac.', 'error');
         if (cfg) cfg.perms = { screen: m.screen, input: m.input };
         break;
+      case 'mic':
+        if (!m.on) {
+          mic.stop();
+          showBanner(m.installed ? 'The Mac couldn’t use the iPhone microphone.' : 'Add the Duo Mac Microphone on your Mac first: menu bar › Settings… › General.', 'warn', 7000);
+        }
+        break;
       case 'notice':
         if (m.level === 'error' && (m.code === 'screen-permission' || m.code === 'capture')) {
           fatal = 'permission';
@@ -964,6 +976,23 @@ function nanoRequest() {
 function sendHello() {
   lastBox = screen.boxPixels();
   link.send({ t: 'hello', v: 1, box: lastBox, q: settings.quality, standalone: !!navigator.standalone, nano: nanoRequest() });
+  if (mic.running) link.send({ t: 'mic', on: true });
+}
+
+// ───── The iPhone's microphone, for the Mac ─────
+const mic = new Mic((buf) => link.sendBinary(buf));
+let micDenied = false;
+async function micOn() {
+  if (!(await mic.start())) {
+    micDenied = true; // don't ask again on every tap; flipping the setting retries
+    showBanner(mic.error === 'NotAllowedError' ? 'Microphone access was denied. Allow it for this app in iPhone Settings, then turn it on again.' : `Couldn’t start the microphone (${mic.error}).`, 'warn', 7000);
+    return;
+  }
+  link.send({ t: 'mic', on: true });
+}
+function micOff() {
+  mic.stop();
+  link.send({ t: 'mic', on: false });
 }
 
 // ───── iPhone keyboard (dictation, emoji, accents) ─────
@@ -1073,6 +1102,7 @@ for (const ev of ['gesturestart', 'gesturechange', 'gestureend', 'contextmenu', 
 // While pairing or unlocking the link stays up (the passkey sheet may hide the page for a moment).
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
+    if (mic.running) { mic.stop(); link.send({ t: 'mic', on: false }); } // back on with the next tap
     keyboard.releaseAll();
     trackpad.reset();
     lidTouch.reset();

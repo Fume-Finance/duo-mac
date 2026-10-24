@@ -40,6 +40,8 @@ final class AppModel: ObservableObject {
     @Published var nanoInfo = ""
     /// The browser an iPhone last opened the pairing page in (the Add to Home Screen steps differ).
     @Published var phoneBrowser: PhoneBrowser?
+    @Published var micInstalled = false
+    @Published var micActive = false
 }
 
 /// Things the window's buttons do.
@@ -50,6 +52,27 @@ struct StatusActions {
         // First call shows the system prompt and adds us to the list; afterwards it just returns false.
         if !CGRequestScreenCaptureAccess() {
             open("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
+        }
+    }
+
+    /// Adds the Duo Mac Microphone (asks for an administrator password).
+    func installMicrophone() {
+        guard let src = core.microphoneDriverSource else {
+            let a = NSAlert()
+            a.messageText = "The microphone driver isn't built yet"
+            a.informativeText = "Run ./build.sh in the duo-mac folder, then try again."
+            a.runModal()
+            return
+        }
+        Microphone.install(from: src) { ok, message in
+            self.core.refreshModel()
+            Log.info("Microphone install: \(ok ? "done" : "failed: \(message ?? "")")")
+            if !ok, let message, !message.contains("-128") { // -128: cancelled
+                let a = NSAlert()
+                a.messageText = "Couldn't add the Duo Mac Microphone"
+                a.informativeText = message
+                a.runModal()
+            }
         }
     }
 

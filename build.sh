@@ -39,6 +39,10 @@ cp "build/.bin/Duo Mac" "$INSTALL/.bin/Duo Mac.new"
 mv -f "$INSTALL/.bin/Duo Mac.new" "$INSTALL/.bin/Duo Mac"
 [ -L "$INSTALL/Duo Mac" ] || { rm -f "$INSTALL/Duo Mac"; ln -s ".bin/Duo Mac" "$INSTALL/Duo Mac"; }
 rsync -a --delete web/ "$INSTALL/web/"
+# The Duo Mac Microphone driver: installed into the system by Duo Mac itself (Settings › General),
+# which asks for an administrator password.
+./tools/make-driver.sh >/dev/null
+rsync -a --delete build/DuoMacMicrophone.driver/ "$INSTALL/DuoMacMicrophone.driver/"
 
 APP="/Applications/Duo Mac.app"
 # Without admin rights /Applications isn't writable: use ~/Applications (Spotlight lists apps there too).

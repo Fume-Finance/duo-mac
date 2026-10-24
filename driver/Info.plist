@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDevelopmentRegion</key><string>en</string>
+  <key>CFBundleExecutable</key><string>DuoMacMicrophone</string>
+  <key>CFBundleIdentifier</key><string>com.riccardoconti.duomac.microphone</string>
+  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+  <key>CFBundleName</key><string>Duo Mac Microphone</string>
+  <key>CFBundlePackageType</key><string>BNDL</string>
+  <key>CFBundleShortVersionString</key><string>1.0</string>
+  <key>CFBundleVersion</key><string>1</string>
+  <key>CFPlugInFactories</key>
+  <dict>
+    <key>6A3E1C52-8C2B-4E5E-9C1F-2D7B5A9E0D11</key><string>DuoMacMicrophone_Create</string>
+  </dict>
+  <key>CFPlugInTypes</key>
+  <dict>
+    <key>443ABAB8-E7B3-491A-B985-BEB9187030DB</key>
+    <array><string>6A3E1C52-8C2B-4E5E-9C1F-2D7B5A9E0D11</string></array>
+  </dict>
+  <key>AudioServerPlugIn_MachServices</key><array/>
+</dict>
+</plist>

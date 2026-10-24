@@ -13,6 +13,7 @@ final class NanoCore {
     let injector: InputInjector
     let webRoot: URL
     let appIcon: NSImage?
+    let microphone = Microphone()
 
     private let configLock = NSLock()
     private var _config: NanoConfig
@@ -303,6 +304,7 @@ final class NanoCore {
         let s = Session(core: self, ws: ws, userAgent: headers["user-agent"] ?? "", peer: peer)
         pending[ObjectIdentifier(s)] = s
         ws.onText = { [weak s] text in s?.handle(text: text) }
+        ws.onBinary = { [weak s] data in s?.handle(binary: data) }
         ws.onClose = { [weak self, weak s] in
             guard let self, let s else { return }
             self.detach(s)
@@ -328,6 +330,7 @@ final class NanoCore {
         if let id = s.deviceID { lastSeen[id] = Date() }
         Log.info("📱 \(s.clientName) disconnected")
         DispatchQueue.main.async {
+            self.setMicrophone(false)
             self.scheduleNanoTeardown()
             self.setAwake(false)
             self.model.connected = false
@@ -689,6 +692,7 @@ final class NanoCore {
             "test": options.testPattern,
             "dryRun": injector.dryRun,
             "perms": ["screen": screenOK, "input": inputOK],
+            "mic": ["installed": Microphone.isInstalled],
         ]
     }
 
@@ -721,7 +725,29 @@ final class NanoCore {
         model.testMode = options.testPattern
         model.dryRun = injector.dryRun
         model.keyboardLayout = keymap.layoutName + (keymap.iso ? " · ISO" : "")
+        model.micInstalled = Microphone.isInstalled
         refreshPermissions()
+    }
+
+    // MARK: The iPhone's microphone
+
+    /// Where build.sh puts the driver: next to the installed helper (or in build/ when run from there).
+    var microphoneDriverSource: URL? {
+        let candidates = [webRoot.deletingLastPathComponent().appendingPathComponent(Microphone.driverName),
+                          URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
+                              .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent(Microphone.driverName)]
+        return candidates.first { FileManager.default.fileExists(atPath: $0.path) }
+    }
+
+    /// The phone turned its microphone on or off (or went away). main thread
+    func setMicrophone(_ on: Bool, for s: Session? = nil) {
+        if on {
+            let ok = microphone.start()
+            server.queue.async { s?.send(["t": "mic", "on": ok, "installed": Microphone.isInstalled]) }
+        } else {
+            microphone.stop()
+        }
+        model.micActive = microphone.active
     }
 
     /// main thread
