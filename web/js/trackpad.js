@@ -84,7 +84,10 @@ export class Trackpad {
     }
     if (!this.g) return;
     // Extra fingers while moving the pointer or dragging are brushes: ignore them.
-    if (this.mode === 'drag' || this.mode === 'tail' || (this.mode === 'one' && this.g.moved)) return;
+    // (A second finger within 150 ms of the first is the same gesture, even if the first already slid
+    // a little: fingers going down for a pinch or a scroll rarely land together.)
+    const together = this.mode === 'one' && now - this.g.start < 150;
+    if (this.mode === 'drag' || this.mode === 'tail' || (this.mode === 'one' && this.g.moved && !together)) return;
     const ids = [...this.p.keys()];
     if (this.mode === 'one' && this.p.size === 2) {
       this.mode = 'two';
@@ -130,11 +133,13 @@ export class Trackpad {
       if (!t.kind) {
         const cm = Math.hypot(c.x - t.c.x, c.y - t.c.y), dd = Math.abs(d - t.d);
         if (cm > 5 || dd > 8) t.moved = true;
-        if (dd > 26 && dd > cm * 1.3 && t.d > 0) {
+        // Spreading or closing fingers pinch; moving together scrolls. The midpoint of a real pinch
+        // drifts too, so neither wins until it clearly outweighs the other.
+        if (t.d > 0 && ((dd > 16 && dd > cm * 1.2) || dd > 40)) {
           t.kind = 'pinch';
           t.d0 = t.d;
           this.cb.zoom?.('start');
-        } else if (cm > 6) {
+        } else if ((cm > 8 && cm > dd * 1.5) || cm > 30) {
           t.kind = 'scroll';
           t.last = c;
         }

@@ -288,8 +288,9 @@ export class LidTouch {
       if (cm > 6 || dd > 8) t.moved = true;
       if (!t.kind) {
         // Fingers spreading: zoom the picture. Moving together: scroll the Mac under them.
-        if (dd > 26 && dd > cm * 1.3) t.kind = 'pinch';
-        else if (cm > 8) {
+        // A real pinch's midpoint drifts too: neither wins until it clearly outweighs the other.
+        if ((dd > 16 && dd > cm * 1.2) || dd > 40) t.kind = 'pinch';
+        else if ((cm > 8 && cm > dd * 1.5) || cm > 30) {
           t.kind = 'scroll';
           this.cb.abs(...this.screen.normalized(t.c.x, t.c.y));
         }
