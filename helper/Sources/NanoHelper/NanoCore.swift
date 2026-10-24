@@ -745,7 +745,14 @@ final class NanoCore {
         Log.info("Microphone: the iPhone turned it \(on ? "on" : "off")")
         if on {
             let ok = microphone.start()
-            server.queue.async { s?.send(["t": "mic", "on": ok, "installed": Microphone.isInstalled, "update": Microphone.needsUpdate]) }
+            let listen = microphone.listening
+            microphone.onListening = { [weak self, weak s] listen in
+                self?.server.queue.async { s?.send(["t": "mic-listen", "on": listen]) }
+            }
+            server.queue.async {
+                s?.send(["t": "mic", "on": ok, "installed": Microphone.isInstalled, "update": Microphone.needsUpdate])
+                if ok { s?.send(["t": "mic-listen", "on": listen]) }
+            }
         } else {
             microphone.stop()
         }

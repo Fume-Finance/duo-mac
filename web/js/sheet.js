@@ -267,7 +267,7 @@ export class Sheet {
     <div class="item icon-item"><span class="ico mic-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" fill="currentColor"/><path d="M6 11a6 6 0 0 0 12 0M12 17v3.5M9 20.5h6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
       <label for="s-mic">Use this iPhone’s microphone${i.micInstalled === false
         ? `<small class="warn">⚠︎ Not on your Mac yet. ${i.micUpdate ? 'Update' : 'Add'} the Duo Mac Microphone there: menu bar › Settings… › General › ${i.micUpdate ? 'Update…' : 'Install…'}</small>`
-        : '<small>Dictation, calls and voice modes on the Mac hear this iPhone.</small>'}</label>
+        : '<small>Dictation, calls and voice modes on the Mac hear this iPhone. It only records while a Mac app is listening.</small>'}</label>
       <input type="checkbox" switch id="s-mic" data-k="mic" ${settings.mic ? 'checked' : ''}></div>
   </div></div>
 

@@ -6,6 +6,9 @@ import Foundation
 /// plays it into the hidden "Duo Mac Microphone Feed", which comes back out of "Duo Mac Microphone"
 /// (driver/DuoMacMicrophone.c, a loopback) for every app to record from. While it's on, that
 /// microphone is the Mac's default input; the previous one comes back when it stops.
+///
+/// The phone only records while some app is listening to the microphone (`onListening` says when),
+/// so its microphone isn't on the whole time.
 final class Microphone {
     static let deviceUID = "DuoMacMicrophone_UID"
     static let feedUID = "DuoMacMicrophoneFeed_UID"
@@ -25,6 +28,13 @@ final class Microphone {
     // samples handed to the feed, and silence played because the buffer was empty.
     private var received = 0, peak: Float = 0, played = 0, starved = 0
     private var report: Timer?
+    private var listener: AudioObjectPropertyListenerBlock?
+    private var micID: AudioDeviceID?
+    /// An app started or stopped listening to the Duo Mac Microphone (main thread).
+    var onListening: ((Bool) -> Void)?
+    private(set) var listening = false
+    private static var runningAddress = AudioObjectPropertyAddress(
+        mSelector: kAudioDevicePropertyDeviceIsRunningSomewhere, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
 
     // MARK: The device
 
@@ -122,7 +132,20 @@ final class Microphone {
             previousInput = cur
             Microphone.setDefaultInput(dev)
         }
-        Log.info("Microphone: the iPhone is the Mac's microphone")
+        // Who's listening: the phone records only then.
+        micID = dev
+        listening = Microphone.isRunningSomewhere(dev)
+        let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+            guard let self, self.active, let id = self.micID else { return }
+            let now = Microphone.isRunningSomewhere(id)
+            guard now != self.listening else { return }
+            self.listening = now
+            Log.info("Microphone: \(now ? "an app started listening" : "no app is listening any more")")
+            self.onListening?(now)
+        }
+        listener = block
+        AudioObjectAddPropertyListenerBlock(dev, &Microphone.runningAddress, .main, block)
+        Log.info("Microphone: the iPhone is the Mac's microphone\(listening ? " (an app is listening)" : "")")
         return true
     }
 
@@ -130,6 +153,10 @@ final class Microphone {
         guard active else { return }
         report?.invalidate()
         report = nil
+        if let micID, let listener { AudioObjectRemovePropertyListenerBlock(micID, &Microphone.runningAddress, .main, listener) }
+        listener = nil
+        micID = nil
+        listening = false
         logFlow()
         if let feedID, let ioProc {
             AudioDeviceStop(feedID, ioProc)
@@ -164,9 +191,7 @@ final class Microphone {
 
     static func isRunningSomewhere(_ id: AudioDeviceID) -> Bool {
         var v = UInt32(0), size = UInt32(4)
-        var a = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyDeviceIsRunningSomewhere,
-                                           mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
-        return AudioObjectGetPropertyData(id, &a, 0, nil, &size, &v) == noErr && v != 0
+        return AudioObjectGetPropertyData(id, &runningAddress, 0, nil, &size, &v) == noErr && v != 0
     }
 
     // MARK: Audio

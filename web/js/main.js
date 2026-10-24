@@ -564,8 +564,12 @@ screen.onFirstFrame = () => { if (powered) reveal(); };
 // iOS only lets audio start from a touch *end*; unlock there too.
 app.addEventListener('pointerup', () => {
   sound.unlock();
-  // The microphone too: iOS only starts it from a tap (after a relaunch, the first one).
-  if (settings.mic && authed && link.open && !mic.running && !micDenied) micOn();
+  // The microphone's audio too, for when a Mac app starts listening. If one already is and iOS
+  // wouldn't start without a tap, this is that tap.
+  if (settings.mic) {
+    mic.unlock();
+    if (micWanted && !mic.running && !micDenied) record();
+  }
 }, true);
 
 // The first tap anywhere powers the Nano on (and unlocks audio on iOS); it isn't sent to the Mac.
@@ -958,11 +962,19 @@ link = new Link({
         }
         remoteLog('info', [`mic: the Mac says on=${m.on} installed=${m.installed}`]);
         if (!m.on) {
+          micWanted = false;
           mic.stop();
           setSetting('mic', false);
           sheet.update(sheetInfo());
           showBanner(m.installed ? 'The Mac couldn’t use the iPhone microphone.' : micMissing(), 'warn', 8000);
         }
+        break;
+      case 'mic-listen':
+        // A Mac app started (or stopped) listening to the Duo Mac Microphone.
+        micWanted = !!m.on && settings.mic;
+        clearTimeout(micIdle);
+        if (micWanted) record();
+        else micIdle = setTimeout(() => { if (!micWanted) mic.stop(); }, 3000); // dictation often stops and restarts
         break;
       case 'notice':
         if (m.level === 'error' && (m.code === 'screen-permission' || m.code === 'capture')) {
@@ -995,29 +1007,44 @@ function nanoRequest() {
 function sendHello() {
   lastBox = screen.boxPixels();
   link.send({ t: 'hello', v: 1, box: lastBox, q: settings.quality, standalone: !!navigator.standalone, nano: nanoRequest() });
-  if (mic.running) link.send({ t: 'mic', on: true });
+  if (settings.mic) link.send({ t: 'mic', on: true });
 }
 
 // ───── The iPhone's microphone, for the Mac ─────
 const mic = new Mic((buf) => link.sendBinary(buf));
 let micDenied = false;
+let micWanted = false; // a Mac app is listening
+let micIdle = 0;
 const micMissing = () => cfg?.mic?.update
   ? 'Update the Duo Mac Microphone on your Mac first: menu bar › Settings… › General › Update….'
   : 'Add the Duo Mac Microphone on your Mac first: menu bar › Settings… › General › Install….';
-async function micOn() {
-  remoteLog('info', ['mic: starting']);
-  if (!(await mic.start())) {
-    micDenied = true; // don't ask again on every tap; flipping the setting retries
-    remoteLog('warn', [`mic: couldn't start: ${mic.error}`]);
-    showBanner(mic.error === 'NotAllowedError' ? 'Microphone access was denied. Allow it for this app in iPhone Settings, then turn it on again.' : `Couldn’t start the microphone (${mic.error}).`, 'warn', 7000);
-    return;
-  }
-  remoteLog('info', [`mic: on at ${mic.ctx?.sampleRate} Hz`]);
+/** The setting turned on (a tap): the Mac makes the Duo Mac Microphone its input; the iPhone records
+ *  once an app listens to it. */
+function micOn() {
+  mic.unlock();
   link.send({ t: 'mic', on: true });
 }
 function micOff() {
+  micWanted = false;
   mic.stop();
   link.send({ t: 'mic', on: false });
+}
+async function record() {
+  if (document.hidden || mic.running) return;
+  remoteLog('info', ['mic: a Mac app is listening, recording']);
+  if (await mic.start()) {
+    if (!micWanted) mic.stop(); // it stopped listening meanwhile
+    else remoteLog('info', [`mic: recording at ${mic.ctx?.sampleRate} Hz`]);
+    return;
+  }
+  remoteLog('warn', [`mic: couldn't start: ${mic.error}`]);
+  if (mic.error === 'NotAllowedError') {
+    micDenied = true; // don't ask again on every tap; flipping the setting retries
+    showBanner('Microphone access was denied. Allow it for this app in iPhone Settings, then turn it on again.', 'warn', 7000);
+  } else {
+    // iOS wants a tap before it starts audio: the next one starts it (see pointerup).
+    showBanner('The Mac wants your microphone: tap the screen to start it.', 'info', 6000);
+  }
 }
 
 // ───── iPhone keyboard (dictation, emoji, accents) ─────
@@ -1127,7 +1154,8 @@ for (const ev of ['gesturestart', 'gesturechange', 'gestureend', 'contextmenu', 
 // While pairing or unlocking the link stays up (the passkey sheet may hide the page for a moment).
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
-    if (mic.running) { mic.stop(); link.send({ t: 'mic', on: false }); } // back on with the next tap
+    micWanted = false;
+    mic.stop(); // the link closes; reconnecting turns it back on
     keyboard.releaseAll();
     trackpad.reset();
     lidTouch.reset();
