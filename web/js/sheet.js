@@ -285,6 +285,7 @@ export class Sheet {
     ${settings.layout === 'laptop' ? cards('theme', 'Finish', [['spaceblack', 'Space Black', keyboardArt(false)], ['silver', 'Silver', keyboardArt(true)]]) : ''}
     ${settings.layout !== 'screen' ? splitSlider() : ''}
     ${toggle('notch', 'Notch', settings.topEdge === 'full' && document.getElementById('app')?.classList.contains('tall-top') ? 'Purely cosmetic. Not shown in Full screen (no room above the screen).' : 'Purely cosmetic')}
+    ${settings.seenDuo ? toggle('foldCloses', 'Folding closes the lid', 'Folded, the iPhone shows a closed MacBook and the Mac can sleep. Turn off to use Duo Mac folded.') : ''}
     ${toggle('chime', 'Startup chime')}
     ${toggle('stats', 'Show stats', 'Frame rate, bandwidth, latency')}
     <div class="item"><span class="l">Screen</span>

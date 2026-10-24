@@ -330,6 +330,7 @@ function layout() {
   const tallTop = safeArea().top >= 70;
   app.classList.toggle('tall-top', tallTop);
   app.classList.toggle('full-top', tallTop && settings.topEdge === 'full');
+  checkFold(tallTop);
   app.style.setProperty('--lid-h', `${screenOnly ? H : Math.round(H * split())}px`);
   // Stats live on the trackpad, out of the way; with no trackpad, on the screen.
   const statsHome = screenOnly ? $('#screen-area') : $('#trackpad');
@@ -341,6 +342,51 @@ function layout() {
   clearTimeout(resizeTimer);
   resizeTimer = setTimeout(sendResizeIfNeeded, 350);
 }
+
+// ───── Folding the iPhone Duo closes the lid ─────
+// Unfolded, an iPhone Duo's inner screen is nearly square (≈1.4:1) under its tall 82 pt status bar.
+// Folded, the app moves to the cover screen, a regular phone shape (≈2:1). That shape on a phone
+// that has been seen unfolded means it was folded: show a closed lid and hang up like a closed
+// MacBook, so the Mac stops sharing its screen and can sleep. The setting turns this off.
+const closedEl = $('#closed');
+let lidClosed = false, foldTimer = 0;
+function checkFold(tallTop) {
+  const long = Math.max(innerWidth, innerHeight), short = Math.min(innerWidth, innerHeight) || 1;
+  const ratio = long / short;
+  if (tallTop && ratio < 1.6 && !settings.seenDuo) setSetting('seenDuo', true);
+  const folded = settings.foldCloses && settings.seenDuo && ratio > 1.75 && !tallTop;
+  clearTimeout(foldTimer);
+  if (folded === lidClosed) return;
+  // Folding and unfolding pass through odd sizes: act on the shape it settles in.
+  foldTimer = setTimeout(() => (folded ? closeLid() : openLid()), folded ? 250 : 0);
+}
+function closeLid() {
+  if (lidClosed) return;
+  lidClosed = true;
+  remoteLog('info', [`lid: folded (${innerWidth}×${innerHeight})`]);
+  closedEl.querySelector('.mac').textContent = macName();
+  closedEl.classList.toggle('silver', settings.theme === 'silver');
+  closedEl.hidden = false;
+  if (sheet.isOpen) sheet.close();
+  micWanted = false;
+  mic.stop();
+  keyboard.releaseAll();
+  trackpad.reset();
+  lidTouch.reset();
+  link.send({ t: 'rel' });
+  if (link.open) link.close();
+}
+function openLid() {
+  if (!lidClosed) return;
+  lidClosed = false;
+  closedEl.hidden = true;
+  if (!document.hidden && !fatal) link.reconnectNow();
+}
+closedEl.querySelector('.use-folded').addEventListener('click', () => {
+  setSetting('foldCloses', false);
+  openLid();
+  showBanner('Folding won’t close the lid any more. Turn it back on in Settings › Display.', 'info', 5000);
+});
 
 function layoutDeck() {
   const W = deck.clientWidth, H = deck.clientHeight;
@@ -419,6 +465,7 @@ function applyTheme() {
 
 onSetting((k, v) => {
   if (k === 'theme') applyTheme();
+  if (k === 'foldCloses') layout();
   if (k === 'hinge' || k === 'hingePad' || k === 'layout' || k === 'notch' || k === 'topEdge' || k === 'haptics') layout();
   if ((k === 'hinge' || k === 'hingePad' || k === 'topEdge' || k === 'layout') && settings.macDisplay === 'nano') {
     // Reshape the Mac's Duo display to the new screen area once the slider settles.
@@ -1161,7 +1208,7 @@ document.addEventListener('visibilitychange', () => {
     lidTouch.reset();
     link.send({ t: 'rel' });
     if (link.open && authed) link.close();
-  } else if (!fatal) {
+  } else if (!fatal && !lidClosed) {
     link.reconnectNow();
   }
 });

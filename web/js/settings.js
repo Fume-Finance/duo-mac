@@ -23,6 +23,8 @@ export const DEFAULTS = {
   nanoSize: 'default',  // large (bigger text) | default | more (more space)
   hintSeen: false,
   mic: false,           // stream this iPhone's microphone to the Mac (the Duo Mac Microphone)
+  foldCloses: true,     // iPhone Duo: folding it shows a closed lid (and lets the Mac sleep)
+  seenDuo: false,       // this phone has opened up into an iPhone Duo's inner screen
   defaultsRev: 2,       // bumped when a default changes for everyone (see upgrade)
 };
 
