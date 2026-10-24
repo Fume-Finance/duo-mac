@@ -25,6 +25,7 @@ export const DEFAULTS = {
   mic: false,           // stream this iPhone's microphone to the Mac (the Duo Mac Microphone)
   foldCloses: true,     // iPhone Duo: folding it shows a closed lid (and lets the Mac sleep)
   seenDuo: false,       // this phone has opened up into an iPhone Duo's inner screen
+  duoShort: 0,          // that inner screen's short side (CSS px), to tell folded from unfolded
   defaultsRev: 2,       // bumped when a default changes for everyone (see upgrade)
 };
 

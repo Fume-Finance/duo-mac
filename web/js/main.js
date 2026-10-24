@@ -344,17 +344,24 @@ function layout() {
 }
 
 // ───── Folding the iPhone Duo closes the lid ─────
-// Unfolded, an iPhone Duo's inner screen is nearly square (≈1.4:1) under its tall 82 pt status bar.
-// Folded, the app moves to the cover screen, a regular phone shape (≈2:1). That shape on a phone
-// that has been seen unfolded means it was folded: show a closed lid and hang up like a closed
-// MacBook, so the Mac stops sharing its screen and can sleep. The setting turns this off.
+// Unfolded, an iPhone Duo's inner screen is nearly square (669×951) under its tall 82 pt status bar.
+// Folded, the app moves to the cover screen, much the same shape but a third narrower (466×678).
+// So the short side, compared with the inner screen's, tells them apart in either orientation.
+// Folded: show a closed lid and hang up like a closed MacBook, so the Mac stops sharing its screen
+// and can sleep. The setting turns this off.
 const closedEl = $('#closed');
-let lidClosed = false, foldTimer = 0;
+let lidClosed = false, foldTimer = 0, lastShort = 0;
 function checkFold(tallTop) {
   const long = Math.max(innerWidth, innerHeight), short = Math.min(innerWidth, innerHeight) || 1;
-  const ratio = long / short;
-  if (tallTop && ratio < 1.6 && !settings.seenDuo) setSetting('seenDuo', true);
-  const folded = settings.foldCloses && settings.seenDuo && ratio > 1.75 && !tallTop;
+  if (tallTop && long / short < 1.6 && short > settings.duoShort) {
+    setSetting('duoShort', short);
+    if (!settings.seenDuo) setSetting('seenDuo', true);
+  }
+  if (Math.abs(short - lastShort) > 20) {
+    lastShort = short;
+    remoteLog('info', [`fold: ${innerWidth}×${innerHeight} top ${safeArea().top} (inner screen short side ${settings.duoShort})`]);
+  }
+  const folded = settings.foldCloses && settings.seenDuo && settings.duoShort > 0 && short < settings.duoShort * 0.85;
   clearTimeout(foldTimer);
   if (folded === lidClosed) return;
   // Folding and unfolding pass through odd sizes: act on the shape it settles in.

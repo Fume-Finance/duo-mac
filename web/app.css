@@ -1153,9 +1153,14 @@ button { font: inherit; color: inherit; }
   content: ''; position: absolute; left: 7%; right: 7%; bottom: -3px; height: 5px; border-radius: 0 0 4px 4px;
   background: linear-gradient(#161618, #0c0c0d);
 }
-#closed .mark { width: 24%; color: rgba(255, 255, 255, .16); filter: drop-shadow(0 1px 0 rgba(0, 0, 0, .5)); }
+/* The logo: Apple's own font has it (U+F8FF), so it's drawn by the iPhone, not shipped here. */
+#closed .mark {
+  font: 400 calc(min(62vw, 300px) * .2)/1 -apple-system, system-ui, sans-serif; margin-top: -4%;
+  color: transparent; background: linear-gradient(150deg, #8e9095, #4a4c50 60%, #6a6c70); -webkit-background-clip: text; background-clip: text;
+  filter: drop-shadow(0 1px 0 rgba(255, 255, 255, .06));
+}
 #app.theme-silver ~ #closed .lid, #closed.silver .lid { background: linear-gradient(160deg, #e3e5e8, #c9cbcf 55%, #b9bbbf); }
-#closed.silver .mark { color: rgba(0, 0, 0, .14); filter: none; }
+#closed.silver .mark { background-image: linear-gradient(150deg, #f4f5f7, #a9abaf 60%, #d6d8db); filter: drop-shadow(0 1px 0 rgba(0, 0, 0, .08)); }
 #closed .hint { margin: 0; max-width: 260px; }
 #closed .hint b { color: #d1d1d6; font-weight: 600; }
 #closed .use-folded {
