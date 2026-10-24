@@ -233,7 +233,7 @@ h1 {
 .duo {
   --W: 66.9em; --H: 47.55em; --D: 47.55em; --T: 2.4em; --BT: 2.4em;
   font-size: calc(var(--sw) * .00178 * 1.82 * 1.32);
-  transform: translate3d(calc(var(--sw) * .265), 0, calc(var(--sw) * .1)) rotateY(-18deg);
+  transform: translate3d(calc(var(--sw) * .285), calc(var(--sw) * -.055), calc(var(--sw) * .1)) rotateY(-18deg);
 }
 .duo .lid .face { padding: .5em .5em 0; border-radius: 5.6em 5.6em 0 0; background: #151618; }
 .duo .lid .back { border-radius: 5.6em 5.6em 0 0; background: radial-gradient(120% 90% at 30% 20%, #6e7075, #4a4c50 60%, #3c3e42); }

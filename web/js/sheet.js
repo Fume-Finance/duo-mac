@@ -221,7 +221,7 @@ export class Sheet {
       : 'Not connected';
     this.el.innerHTML = `
 <div class="panel">
-  <header><div class="dots"><i></i><i></i><i></i></div><h2>Duo Mac</h2><button type="button" data-act="close">Done</button></header>
+  <header><h2>Settings</h2><button type="button" class="x" data-act="close" aria-label="Close settings"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button></header>
   <div class="about">
     <img src="icon-180.png" alt="">
     <div>

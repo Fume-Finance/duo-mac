@@ -94,7 +94,7 @@ Duo Mac lives in the **menu bar**. Its panel shows the connected iPhone and the 
 
 **Screen** (top half): tap to click exactly there, drag to drag, 2-finger tap to right-click, pinch or 2 fingers to zoom and pan.
 
-<img src="docs/images/iphone-settings.png" width="330" align="right" alt="Duo Mac settings on the iPhone, above the keyboard and trackpad">
+<img src="docs/images/iphone-settings.png" width="330" align="right" alt="Duo Mac settings on the iPhone: a full-screen page with visual options">
 
 **Keyboard**: labelled with your Mac's actual layout (ANSI or ISO).
 
