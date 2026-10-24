@@ -1,4 +1,4 @@
-import AVFoundation
+import AudioToolbox
 import CoreAudio
 import Foundation
 
@@ -17,10 +17,14 @@ final class Microphone {
     private var readPos = 0, writePos = 0, count = 0
     private var primed = false
     private var last: Float = 0
-    private var engine: AVAudioEngine?
+    private var feedID: AudioDeviceID?
+    private var ioProc: AudioDeviceIOProcID?
     private var previousInput: AudioDeviceID?
     private(set) var active = false
-    private var received = 0 // chunks from the phone since start (logged now and then)
+    // What's flowing, logged every 5 s while on (lock): chunks and loudest sample from the phone,
+    // samples handed to the feed, and silence played because the buffer was empty.
+    private var received = 0, peak: Float = 0, played = 0, starved = 0
+    private var report: Timer?
 
     // MARK: The device
 
@@ -92,30 +96,28 @@ final class Microphone {
             Log.warn("Microphone: the Duo Mac Microphone is \(Microphone.needsUpdate ? "out of date" : "not installed")")
             return false
         }
-        let engine = AVAudioEngine()
-        guard let fmt = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 1) else { return false }
-        let source = AVAudioSourceNode(format: fmt) { [weak self] _, _, frames, abl in
-            let buffers = UnsafeMutableAudioBufferListPointer(abl)
-            guard let out = buffers.first?.mData?.assumingMemoryBound(to: Float.self) else { return noErr }
-            if let self { self.pull(out, Int(frames)) } else { out.update(repeating: 0, count: Int(frames)) }
-            return noErr
-        }
-        engine.attach(source)
-        engine.connect(source, to: engine.mainMixerNode, format: fmt)
         // Play into the feed, not the speakers. (Never into the microphone itself: opening a device
         // with an input would count as recording, and macOS would stop here to ask for permission.)
-        guard let au = engine.outputNode.audioUnit else { return false }
-        var id = feed
-        let set = AudioUnitSetProperty(au, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0,
-                                       &id, UInt32(MemoryLayout<AudioDeviceID>.size))
-        guard set == noErr else { Log.warn("Microphone: can't select the device (\(set))"); return false }
-        do { try engine.start() } catch {
-            Log.warn("Microphone: \(error.localizedDescription)")
+        // Straight to the device, whose format is the driver's: 48 kHz mono float.
+        var proc: AudioDeviceIOProcID?
+        var status = AudioDeviceCreateIOProcIDWithBlock(&proc, feed, nil) { [weak self] _, _, _, out, _ in
+            for b in UnsafeMutableAudioBufferListPointer(out) {
+                guard let p = b.mData?.assumingMemoryBound(to: Float.self) else { continue }
+                let n = Int(b.mDataByteSize) / MemoryLayout<Float>.size
+                if let self { self.pull(p, n) } else { p.update(repeating: 0, count: n) }
+            }
+        }
+        if status == noErr, let proc { status = AudioDeviceStart(feed, proc) }
+        guard status == noErr, let proc else {
+            Log.warn("Microphone: can't play into the feed (\(status))")
+            if let proc { AudioDeviceDestroyIOProcID(feed, proc) }
             return false
         }
-        self.engine = engine
+        feedID = feed
+        ioProc = proc
         active = true
-        received = 0
+        lock.lock(); received = 0; peak = 0; played = 0; starved = 0; lock.unlock()
+        report = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in self?.logFlow() }
         if let cur = Microphone.defaultInput(), cur != dev {
             previousInput = cur
             Microphone.setDefaultInput(dev)
@@ -126,8 +128,15 @@ final class Microphone {
 
     func stop() {
         guard active else { return }
-        engine?.stop()
-        engine = nil
+        report?.invalidate()
+        report = nil
+        logFlow()
+        if let feedID, let ioProc {
+            AudioDeviceStop(feedID, ioProc)
+            AudioDeviceDestroyIOProcID(feedID, ioProc)
+        }
+        feedID = nil
+        ioProc = nil
         active = false
         if let dev = Microphone.deviceID(), Microphone.defaultInput() == dev, let prev = previousInput {
             Microphone.setDefaultInput(prev)
@@ -139,17 +148,38 @@ final class Microphone {
         Log.info("Microphone: back to the Mac's own")
     }
 
+    /// main thread
+    private func logFlow() {
+        lock.lock()
+        let r = received, p = peak, pl = played, st = starved
+        received = 0; peak = 0; played = 0; starved = 0
+        lock.unlock()
+        let db = p > 0 ? Int((20 * log10(p)).rounded()) : -99
+        let mic = Microphone.deviceID()
+        let listened = mic.map { Microphone.isRunningSomewhere($0) } ?? false
+        let def = Microphone.defaultInput() == mic
+        Log.info("Microphone: \(r) chunks from the iPhone (loudest \(db) dB), \(pl / 48) ms played into the feed, \(st / 48) ms of gaps; "
+                 + "the Duo Mac Microphone is \(def ? "" : "NOT ")the default input, \(listened ? "and an app is listening" : "no app is listening")")
+    }
+
+    static func isRunningSomewhere(_ id: AudioDeviceID) -> Bool {
+        var v = UInt32(0), size = UInt32(4)
+        var a = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyDeviceIsRunningSomewhere,
+                                           mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+        return AudioObjectGetPropertyData(id, &a, 0, nil, &size, &v) == noErr && v != 0
+    }
+
     // MARK: Audio
 
     /// 16-bit little-endian samples at 24 kHz from the phone (any thread).
     func feed(_ data: Data) {
         guard active else { return }
-        received += 1
-        if received == 1 || received % 3000 == 0 { Log.info("Microphone: \(received) chunks from the iPhone") } // every minute
         lock.lock(); defer { lock.unlock() }
+        received += 1
         data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
             for i in 0..<(raw.count / 2) {
                 let f = Float(Int16(littleEndian: raw.loadUnaligned(fromByteOffset: i * 2, as: Int16.self))) / 32768
+                peak = max(peak, abs(f))
                 write((last + f) / 2) // 24 → 48 kHz: the midpoint, then the sample
                 write(f)
                 last = f
@@ -177,10 +207,12 @@ final class Microphone {
         if !primed && count >= 1_920 { primed = true }
         guard primed, count > 0 else {
             primed = false
+            starved += n
             out.update(repeating: 0, count: n)
             return
         }
         let take = min(n, count)
+        played += take
         for i in 0..<take {
             out[i] = ring[readPos]
             readPos = (readPos + 1) % ring.count
