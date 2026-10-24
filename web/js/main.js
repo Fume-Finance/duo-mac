@@ -362,16 +362,26 @@ function checkFold(tallTop) {
     remoteLog('info', [`fold: ${innerWidth}×${innerHeight} top ${safeArea().top} (inner screen short side ${settings.duoShort})`]);
   }
   const folded = settings.foldCloses && settings.seenDuo && settings.duoShort > 0 && short < settings.duoShort * 0.85;
+  if (lidClosed) orientLid();
   clearTimeout(foldTimer);
   if (folded === lidClosed) return;
   // Folding and unfolding pass through odd sizes: act on the shape it settles in.
   foldTimer = setTimeout(() => (folded ? closeLid() : openLid()), folded ? 250 : 0);
+}
+/** Keep the lid fixed to the phone while iOS turns the page with it (see #closed in app.css). */
+function orientLid() {
+  const turn = typeof window.orientation === 'number' ? window.orientation : ((screen.orientation?.angle || 0) + 180) % 360 - 180;
+  const sideways = Math.abs(turn) % 180 === 90;
+  closedEl.style.setProperty('--turn', `${-turn}deg`);
+  closedEl.style.setProperty('--lid-w', sideways ? '100vh' : '100vw');
+  closedEl.style.setProperty('--lid-h2', sideways ? '100vw' : '100vh');
 }
 function closeLid() {
   if (lidClosed) return;
   lidClosed = true;
   remoteLog('info', [`lid: folded (${innerWidth}×${innerHeight})`]);
   closedEl.classList.toggle('silver', settings.theme === 'silver');
+  orientLid();
   closedEl.hidden = false;
   if (sheet.isOpen) sheet.close();
   micWanted = false;
