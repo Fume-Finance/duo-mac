@@ -44,7 +44,23 @@ function touchArt(pad) {
   out += pad
     ? `<path d="M30 17l0 9 2.4-2.2 1.8 3.8 1.6-.8-1.8-3.7 3.3-.2z" class="ptr"/>
        <path d="M44 41 L56 33" class="trail"/><circle cx="57" cy="32" r="4.5" class="tip"/>`
-    : `<circle cx="42" cy="24" r="7" class="ring"/><circle cx="42" cy="24" r="4.5" class="tip"/>`;
+    : `<circle cx="42" cy="24" r="7" class="tring"/><circle cx="42" cy="24" r="4.5" class="tip"/>`;
+  return out + '</svg>';
+}
+
+/** The Mac's screen, with or without the notch in the top middle. */
+function notchArt(on) {
+  return `<svg viewBox="0 0 80 50"><rect x="4" y="5" width="72" height="40" rx="4" class="frame"/>${desk(6, 7, 68, 36)}
+    ${on ? '<path d="M29 7h22v6.5a2.4 2.4 0 0 1-2.4 2.4H31.4a2.4 2.4 0 0 1-2.4-2.4z" class="notch"/>' : ''}</svg>`;
+}
+
+/** Folded: the cover screen shows a closed lid, or the Mac (the whole screen a trackpad). */
+function foldArt(lid) {
+  let out = '<svg viewBox="0 0 80 50"><rect x="26" y="1.5" width="28" height="47" rx="5.5" class="frame"/>';
+  out += lid
+    ? '<rect x="28" y="3.5" width="24" height="43" rx="3.8" class="lidc"/><rect x="28" y="3.5" width="2.2" height="43" class="hinge"/><text x="40" y="25" class="apple" transform="rotate(90 40 25)">&#xF8FF;</text>'
+    : `${desk(28, 3.5, 24, 43)}<rect x="31" y="14" width="18" height="12" rx="1" class="win"/>
+       <path d="M36 18l0 6 1.6-1.5 1.2 2.6 1.1-.5-1.2-2.5 2.2-.1z" class="ptr"/><circle cx="44" cy="37" r="3.6" class="tip"/>`;
   return out + '</svg>';
 }
 
@@ -188,7 +204,7 @@ export class Sheet {
         const v = b.dataset.val;
         setSetting(key, v === 'true' ? true : v === 'false' ? false : v);
         for (const x of b.parentElement.children) x.classList.toggle('on', x === b);
-        if (key === 'layout' || key === 'screenTouch') {
+        if (key === 'layout' || key === 'screenTouch' || key === 'foldCloses') {
           // Which of the options below apply depends on the layout.
           const p = this.el.querySelector('.panel'), y = p?.scrollTop || 0;
           this.render();
@@ -302,8 +318,10 @@ export class Sheet {
       : toggle('touchscreen', 'Touch screen', 'Tap the screen to click there')}
     ${settings.layout === 'laptop' ? cards('theme', 'Finish', [['spaceblack', 'Space Black', keyboardArt(false)], ['silver', 'Silver', keyboardArt(true)]]) : ''}
     ${settings.layout !== 'screen' ? splitSlider() : ''}
-    ${toggle('notch', 'Notch', settings.topEdge === 'full' && document.getElementById('app')?.classList.contains('tall-top') ? 'Purely cosmetic. Not shown in Full screen (no room above the screen).' : 'Purely cosmetic')}
-    ${settings.seenDuo ? toggle('foldCloses', 'Folding closes the lid', 'Folded, the iPhone shows a closed MacBook and the Mac can sleep. Turn off to use Duo Mac folded.') : ''}
+    ${cards('notch', 'Notch', [['false', 'No notch', notchArt(false)], ['true', 'Notch', notchArt(true)]],
+      settings.topEdge === 'full' && document.getElementById('app')?.classList.contains('tall-top') ? 'Purely cosmetic. Not shown in Full screen (no room above the screen).' : 'Purely cosmetic')}
+    ${settings.seenDuo ? cards('foldCloses', 'When folded', [['true', 'Closed lid', foldArt(true)], ['false', 'Keep using it', foldArt(false)]],
+      settings.foldCloses ? 'Shows a closed MacBook and lets the Mac sleep.' : 'All screen, and the whole screen is a trackpad.') : ''}
     ${toggle('chime', 'Startup chime')}
     ${toggle('stats', 'Show stats', 'Frame rate, bandwidth, latency')}
     <div class="item"><span class="l">Screen</span>

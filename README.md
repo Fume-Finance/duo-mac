@@ -107,7 +107,7 @@ Duo Mac lives in the **menu bar**. Its panel shows the connected iPhone and the 
 
 **Duo display** (on by default): instead of squeezing your 16:10 screen into the phone's half, the Mac gets an extra display shaped exactly like it, and the Mac's own screen mirrors it. *Desktop size* picks how roomy it is: Larger text, Default or More space. It goes away a minute after the iPhone disconnects (or right away with *Mirror as is*, or when you quit the app).
 
-**Fold to close** (iPhone Duo): folding the phone turns its screen into a closed MacBook lid, edge to edge, and hangs up, so the Mac stops sharing its screen and can sleep; unfolding picks up where you left off. To use Duo Mac folded, turn off Settings › Display › *Folding closes the lid*.
+**Fold to close** (iPhone Duo): folding the phone turns its screen into a closed MacBook lid, edge to edge, and hangs up, so the Mac stops sharing its screen and can sleep; unfolding picks up where you left off. To use Duo Mac folded, pick *Keep using it* under Settings › Display › *When folded*.
 
 **The Mac's sound** plays on the iPhone's speaker (music, videos, calls, alerts), captured along with the screen, so it needs no extra permission; the Mac's own speakers are muted meanwhile and come back when the iPhone disconnects. Turn it off in Settings › Sound.
 
