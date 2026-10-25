@@ -80,6 +80,7 @@ final class NanoCore {
             DispatchQueue.main.async { self?.model.serverError = ok ? nil : err }
         }
         server.start()
+        microphone.guardDefaultInput()
         Log.info("Serving the web app from \(webRoot.path)")
         if injector.dryRun { Log.info("Dry run: input is logged, not sent to macOS") }
         if options.lan { Log.warn("--lan: answering the local network over plain http (testing only)") }

@@ -22,7 +22,6 @@ final class Microphone {
     private var last: Float = 0
     private var feedID: AudioDeviceID?
     private var ioProc: AudioDeviceIOProcID?
-    private var previousInput: AudioDeviceID?
     private(set) var active = false
     // What's flowing, logged every 5 s while on (lock): chunks and loudest sample from the phone,
     // samples handed to the feed, and silence played because the buffer was empty.
@@ -129,7 +128,7 @@ final class Microphone {
         lock.lock(); received = 0; peak = 0; played = 0; starved = 0; lock.unlock()
         report = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in self?.logFlow() }
         if let cur = Microphone.defaultInput(), cur != dev {
-            previousInput = cur
+            if let uid = Microphone.uid(of: cur) { UserDefaults.standard.set(uid, forKey: Microphone.previousKey) }
             Microphone.setDefaultInput(dev)
         }
         // Who's listening: the phone records only then.
@@ -165,14 +164,64 @@ final class Microphone {
         feedID = nil
         ioProc = nil
         active = false
-        if let dev = Microphone.deviceID(), Microphone.defaultInput() == dev, let prev = previousInput {
-            Microphone.setDefaultInput(prev)
-        }
-        previousInput = nil
+        giveBackDefaultInput()
         lock.lock()
         readPos = 0; writePos = 0; count = 0; primed = false
         lock.unlock()
         Log.info("Microphone: back to the Mac's own")
+    }
+
+    // MARK: The Mac's own microphone
+
+    /// The input the Mac had before Duo Mac took over (by UID, so it survives restarts).
+    private static let previousKey = "MicrophonePreviousInputUID"
+
+    /// Only while the iPhone is in use may the Duo Mac Microphone be the Mac's input: with no phone
+    /// it's silent, and the Mac would seem to have lost its microphone. macOS can pick it again on
+    /// its own (when another input, like AirPods, goes away), so this watches for that too and puts
+    /// back the previous input, or the built-in microphone. main thread
+    func guardDefaultInput() {
+        giveBackDefaultInput()
+        var a = Microphone.defaultInputAddress
+        AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &a, .main) { [weak self] _, _ in
+            self?.giveBackDefaultInput()
+        }
+    }
+
+    private func giveBackDefaultInput() {
+        guard !active, let mic = Microphone.deviceID(), Microphone.defaultInput() == mic else { return }
+        let saved = UserDefaults.standard.string(forKey: Microphone.previousKey).flatMap { Microphone.deviceID($0) }
+        guard let back = (saved != mic ? saved : nil) ?? Microphone.builtInInput() else { return }
+        Microphone.setDefaultInput(back)
+        Log.info("Microphone: the Mac's input is \(Microphone.name(of: back) ?? "its own microphone") again")
+    }
+
+    static func uid(of id: AudioDeviceID) -> String? { stringProperty(id, kAudioDevicePropertyDeviceUID) }
+    static func name(of id: AudioDeviceID) -> String? { stringProperty(id, kAudioObjectPropertyName) }
+
+    private static func stringProperty(_ id: AudioDeviceID, _ sel: AudioObjectPropertySelector) -> String? {
+        var a = AudioObjectPropertyAddress(mSelector: sel, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+        var v: Unmanaged<CFString>?
+        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+        guard AudioObjectGetPropertyData(id, &a, 0, nil, &size, &v) == noErr, let v else { return nil }
+        return v.takeRetainedValue() as String
+    }
+
+    /// The Mac's built-in microphone (any built-in device with an input).
+    static func builtInInput() -> AudioDeviceID? {
+        var a = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDevices, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+        var size = UInt32(0)
+        guard AudioObjectGetPropertyDataSize(AudioObjectID(kAudioObjectSystemObject), &a, 0, nil, &size) == noErr else { return nil }
+        var ids = [AudioDeviceID](repeating: 0, count: Int(size) / MemoryLayout<AudioDeviceID>.size)
+        guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &a, 0, nil, &size, &ids) == noErr else { return nil }
+        return ids.first { id in
+            var t = UInt32(0), ts = UInt32(4)
+            var ta = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyTransportType, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+            var sa = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyStreams, mScope: kAudioObjectPropertyScopeInput, mElement: kAudioObjectPropertyElementMain)
+            var ss = UInt32(0)
+            return AudioObjectGetPropertyData(id, &ta, 0, nil, &ts, &t) == noErr && t == kAudioDeviceTransportTypeBuiltIn
+                && AudioObjectGetPropertyDataSize(id, &sa, 0, nil, &ss) == noErr && ss > 0
+        }
     }
 
     /// main thread
