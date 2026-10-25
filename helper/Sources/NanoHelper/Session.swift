@@ -60,6 +60,19 @@ final class Session {
     private(set) var lastInputAt = Date()
     private var logsBeforeAuth = 0
     private(set) var quality: Quality = .balanced
+    /// The phone wants the Mac's sound (net queue sets it; read on the capture queue).
+    private var macSound: Bool {
+        get { soundLock.lock(); defer { soundLock.unlock() }; return _macSound }
+        set { soundLock.lock(); _macSound = newValue; soundLock.unlock() }
+    }
+    private var _macSound = false
+    private let soundLock = NSLock()
+
+    /// A chunk of the Mac's sound (MacSound), straight to the phone. Capture queue.
+    func ingest(sound d: Data) {
+        guard macSound, isAuthed else { return }
+        ws.send(binary: d)
+    }
     private(set) var box = CGSize(width: 1280, height: 800)
     /// The phone wants the Duo display (a virtual display shaped like its screen) and how roomy.
     private(set) var nanoOn = false
@@ -199,6 +212,7 @@ final class Session {
         case "aux": inj.aux(Int32(clamping: int(m["k"])), down: int(m["d"]) == 1)
         case "act": if let a = m["a"] as? String { inj.action(a) }
         case "rel": inj.releaseAll()
+        case "sound": macSound = (m["on"] as? Bool) ?? false
         case "z": if let p = m["p"] as? String { inj.magnify(phase: p, amount: num(m["m"])) }
         case "mic":
             let on = (m["on"] as? Bool) ?? false
@@ -214,6 +228,7 @@ final class Session {
             }
         case "ack": ack(UInt32(truncatingIfNeeded: int(m["f"])))
         case "hello":
+            macSound = (m["sound"] as? Bool) ?? false
             readBox(m["box"])
             if let q = (m["q"] as? String).flatMap(Quality.init(rawValue:)) { quality = q }
             readNano(m["nano"])

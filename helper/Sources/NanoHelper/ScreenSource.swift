@@ -6,6 +6,8 @@ import CoreVideo
 /// Something that produces screen frames: the real display (ScreenCaptureKit) or the test pattern.
 protocol FrameSource: AnyObject {
     var onFrame: ((CVPixelBuffer) -> Void)? { get set }
+    /// The Mac's sound, captured with the screen (48 kHz float). Capture queue.
+    var onAudio: ((CMSampleBuffer) -> Void)? { get set }
     var onError: ((Error) -> Void)? { get set }
     var info: DisplayInfo { get }
     var displayIndex: Int? { get set }
@@ -70,6 +72,7 @@ struct DisplayInfo {
 
 final class ScreenSource: NSObject, FrameSource, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
     var onFrame: ((CVPixelBuffer) -> Void)?
+    var onAudio: ((CMSampleBuffer) -> Void)?
     var onError: ((Error) -> Void)?
     private(set) var info: DisplayInfo
     /// Which display to capture (index into the active display list; nil = main). Main thread.
@@ -77,6 +80,7 @@ final class ScreenSource: NSObject, FrameSource, SCStreamOutput, SCStreamDelegat
     var targetDisplayID: CGDirectDisplayID?
     var framesCaptured = 0
     private let sampleQueue = DispatchQueue(label: "nano.capture", qos: .userInteractive)
+    private let audioQueue = DispatchQueue(label: "nano.capture.audio", qos: .userInteractive)
     private let control = DispatchQueue(label: "nano.capture.control")
 
     // control-queue state
@@ -143,6 +147,7 @@ final class ScreenSource: NSObject, FrameSource, SCStreamOutput, SCStreamDelegat
                 let s = SCStream(filter: SCContentFilter(display: display, excludingWindows: []),
                                  configuration: ScreenSource.config(want.w, want.h, want.fps), delegate: self)
                 try s.addStreamOutput(self, type: .screen, sampleHandlerQueue: self.sampleQueue)
+                try s.addStreamOutput(self, type: .audio, sampleHandlerQueue: self.audioQueue)
                 try await s.startCapture()
                 started = s
             } catch {
@@ -222,12 +227,21 @@ final class ScreenSource: NSObject, FrameSource, SCStreamOutput, SCStreamDelegat
         c.queueDepth = 5
         c.scalesToFit = true
         c.captureResolution = .best
+        // The Mac's sound too (all apps, not Duo Mac's own), for the phone's speaker.
+        c.capturesAudio = true
+        c.excludesCurrentProcessAudio = true
+        c.sampleRate = 48_000
+        c.channelCount = 2
         return c
     }
 
     // MARK: SCStreamOutput / SCStreamDelegate
 
     func stream(_ stream: SCStream, didOutputSampleBuffer sb: CMSampleBuffer, of type: SCStreamOutputType) {
+        if type == .audio {
+            if sb.isValid { onAudio?(sb) }
+            return
+        }
         guard type == .screen, sb.isValid,
               let attachments = CMSampleBufferGetSampleAttachmentsArray(sb, createIfNecessary: false) as? [[SCStreamFrameInfo: Any]],
               let raw = attachments.first?[.status] as? Int,

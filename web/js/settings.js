@@ -24,6 +24,7 @@ export const DEFAULTS = {
   nanoSize: 'default',  // large (bigger text) | default | more (more space)
   hintSeen: false,
   mic: false,           // stream this iPhone's microphone to the Mac (the Duo Mac Microphone)
+  macSound: true,       // play the Mac's sound on this iPhone
   foldCloses: true,     // iPhone Duo: folding it shows a closed lid (and lets the Mac sleep)
   seenDuo: false,       // this phone has opened up into an iPhone Duo's inner screen
   duoShort: 0,          // that inner screen's short side (CSS px), to tell folded from unfolded

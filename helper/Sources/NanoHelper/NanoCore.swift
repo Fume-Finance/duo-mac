@@ -68,6 +68,13 @@ final class NanoCore {
         (src as? TestPatternSource)?.injector = injector
         installKeymap(keymap)
         source.onFrame = { [weak self] pb in self?.deliver(pb) }
+        source.onAudio = { [weak self] sb in
+            guard let self, let d = MacSound.encode(sb) else { return }
+            self.sinkLock.lock()
+            let s = self.sink
+            self.sinkLock.unlock()
+            s?.ingest(sound: d)
+        }
         source.onError = { [weak self] err in self?.captureFailed(err) }
         auth = AuthManager(core: self, dir: store.dir)
     }

@@ -3,6 +3,8 @@
 // listening, so start() usually comes from the Mac, not a tap. iOS only lets a page start audio from a
 // tap, so unlock() makes the audio context in one and keeps it (suspended) for later.
 
+import { settings } from './settings.js';
+
 const RATE = 24000;
 const CHUNK = 480; // 20 ms
 
@@ -45,6 +47,8 @@ export class Mic {
   async open() {
     if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)();
     this.ctx.resume().catch(() => {});
+    // Recording and playing at once (the Mac's sound may be playing: js/speaker.js).
+    if (navigator.audioSession) navigator.audioSession.type = 'play-and-record';
     // No timeout here: the first time, iOS waits for the person to answer its permission prompt.
     this.stream = await navigator.mediaDevices.getUserMedia({
       audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
@@ -99,6 +103,7 @@ export class Mic {
     this.stream?.getTracks().forEach((t) => t.stop());
     this.ctx?.suspend().catch(() => {});
     this.node = this.src = this.stream = null;
+    if (navigator.audioSession?.type === 'play-and-record') navigator.audioSession.type = settings.macSound ? 'playback' : 'auto';
     this.n = 0;
   }
 }

@@ -30,6 +30,9 @@ export const sound = {
 
   state() { return ctx ? ctx.state : 'none'; },
 
+  /** The shared audio context (also plays the Mac's sound, js/speaker.js). */
+  context() { return audio(); },
+
   click(kind = 'key') {
     if (!settings.sounds) return;
     const c = audio();

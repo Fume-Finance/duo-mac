@@ -1,3 +1,4 @@
+import CoreMedia
 import Foundation
 import CoreVideo
 import CoreGraphics
@@ -8,6 +9,7 @@ import CoreText
 /// so the whole loop (stream → touch → event → stream) can be checked end to end.
 final class TestPatternSource: FrameSource {
     var onFrame: ((CVPixelBuffer) -> Void)?
+    var onAudio: ((CMSampleBuffer) -> Void)?
     var onError: ((Error) -> Void)?
     static let laptop = DisplayInfo(displayID: 0, bounds: CGRect(x: 0, y: 0, width: 1512, height: 982),
                                     pixelSize: CGSize(width: 3024, height: 1964), notch: CGSize(width: 186, height: 32),

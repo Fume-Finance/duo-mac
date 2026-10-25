@@ -10,6 +10,7 @@ import { sound } from './sound.js';
 import { haptic, addHapticSwitch } from './haptics.js';
 import { showInstall, hideInstall, browserName } from './install.js';
 import { Mic } from './mic.js';
+import { Speaker } from './speaker.js';
 
 const $ = (s) => document.querySelector(s);
 const app = $('#app');
@@ -515,6 +516,7 @@ onSetting((k, v) => {
     v ? micOn() : micOff();
   }
   if (k === 'quality') link.send({ t: 'quality', q: v });
+  if (k === 'macSound') { link.send({ t: 'sound', on: !!v }); if (!v) speaker.stop(); }
   if (k === 'stats') statsEl.hidden = !v;
   if (k === 'fnStandard') keyboard.renderFnRow();
   if (k === 'macDisplay' || k === 'nanoSize') {
@@ -1066,6 +1068,7 @@ link = new Link({
     }
   },
   onFrame(buf) {
+    if (new Uint8Array(buf, 0, 1)[0] === 2) { speaker.push(buf); return; } // the Mac's sound
     screen.enqueue(buf).then((id) => {
       link.send({ t: 'ack', f: id });
       if (powered && overlay.className !== 'hidden' && overlay.className !== 'auth') {
@@ -1082,9 +1085,12 @@ function nanoRequest() {
 
 function sendHello() {
   lastBox = screen.boxPixels();
-  link.send({ t: 'hello', v: 1, box: lastBox, q: settings.quality, standalone: !!navigator.standalone, nano: nanoRequest() });
+  link.send({ t: 'hello', v: 1, box: lastBox, q: settings.quality, standalone: !!navigator.standalone, nano: nanoRequest(), sound: !!settings.macSound });
   if (settings.mic) link.send({ t: 'mic', on: true });
 }
+
+// ───── The Mac's sound, on the iPhone ─────
+const speaker = new Speaker();
 
 // ───── The iPhone's microphone, for the Mac ─────
 const mic = new Mic((buf) => link.sendBinary(buf));

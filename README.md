@@ -110,6 +110,8 @@ Duo Mac lives in the **menu bar**. Its panel shows the connected iPhone and the 
 
 **Fold to close** (iPhone Duo): folding the phone turns its screen into a closed MacBook lid, edge to edge, and hangs up, so the Mac stops sharing its screen and can sleep; unfolding picks up where you left off. To use Duo Mac folded, turn off Settings › Display › *Folding closes the lid*.
 
+**The Mac's sound** plays on the iPhone's speaker (music, videos, calls, alerts), captured along with the screen, so it needs no extra permission. Turn it off in Settings › Sound.
+
 **iPhone microphone** (optional): Mac apps (dictation, calls, voice modes) can hear the iPhone instead of the Mac. Add the **Duo Mac Microphone** once on the Mac (menu bar › Settings… › General › Install…, asks for your password; sound pauses for a second while Core Audio restarts), then turn on *Use this iPhone's microphone* in the iPhone settings (it tells you if the Mac doesn't have the driver yet). While it's on, the Duo Mac Microphone is the Mac's default input; your usual microphone comes back when it's off or the iPhone disconnects. It's a small loopback audio driver (`driver/`): Duo Mac plays the phone's audio into a hidden *Feed* device, and it comes back out of the microphone.
 
 **Away from home**: the Mac must be awake. Turn on **Stay reachable while away** in the menu bar panel and keep it plugged in; a closed MacBook still sleeps unless an external display is connected.

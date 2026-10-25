@@ -274,7 +274,8 @@ export class Sheet {
       <button type="button" class="btn" data-act="iosKeyboard">Type…</button></div>
   </div></div>
 
-  <div class="group"><h3>Microphone</h3><div class="box">
+  <div class="group"><h3>Sound</h3><div class="box">
+    ${toggle('macSound', 'Play the Mac’s sound here', 'Music, videos, calls and alerts from the Mac, on this iPhone’s speaker')}
     <div class="item icon-item"><span class="ico mic-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" fill="currentColor"/><path d="M6 11a6 6 0 0 0 12 0M12 17v3.5M9 20.5h6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
       <label for="s-mic">Use this iPhone’s microphone${i.micInstalled === false
         ? `<small class="warn">⚠︎ Not on your Mac yet. ${i.micUpdate ? 'Update' : 'Add'} the Duo Mac Microphone there: menu bar › Settings… › General › ${i.micUpdate ? 'Update…' : 'Install…'}</small>`
