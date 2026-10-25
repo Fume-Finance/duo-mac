@@ -154,13 +154,13 @@
   const keys = {};
   for (const k of $('#kb-duo').querySelectorAll('[data-k]')) keys[k.dataset.k] = k;
 
-  // The flat iPhone in "Any iPhone": a still frame of the same desktop.
+  // The flat iPhone in "Any iPhone": the same desktop, cycling through the layouts.
   const mini = $('#mac-mini');
   if (mini) {
     mini.innerHTML = macHTML();
-    mini.querySelector('.cursor').remove();
     mini.querySelector('.term pre').innerHTML = termText(CMD.length, 3, true);
     $('#keyboard-mini').innerHTML = keyboardHTML();
+    if (!reduce && !shot) anyPhone(mini);
   }
 
   // ───── The demo, typed on the Duo and shown on both screens ─────
@@ -302,6 +302,60 @@
         i++;
       }, 190);
     }
+  }
+
+  // ───── Any iPhone: Laptop → Trackpad → sideways, the whole screen a trackpad → back ─────
+  function anyPhone(mac) {
+    const fp = $('#fp'), finger = $('.fp-finger', fp), label = $('#fp-label'), cursor = $('.cursor', mac);
+    let on = false;
+    new IntersectionObserver(([e]) => { on = e.isIntersecting; }).observe(fp);
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const until = async () => { while (!on) await sleep(300); };
+    // Keyframes are [x, y]: the finger in % of the screen, the pointer in em of the Mac.
+    const glide = (el, pts, ms, pct) => el.animate(pts.map(([x, y]) => (pct ? { left: `${x}%`, top: `${y}%` } : { transform: `translate(${x}em, ${y}em)` })),
+      { duration: ms, easing: 'ease-in-out', fill: 'forwards' }).finished;
+    const mode = (cls, text) => {
+      fp.className = `flat-phone ${cls}`;
+      label.classList.add('fade');
+      setTimeout(() => { label.textContent = text; label.classList.remove('fade'); }, 250);
+    };
+    const tap = async () => {
+      finger.classList.add('tap'); cursor.classList.add('down');
+      await sleep(160);
+      finger.classList.remove('tap'); cursor.classList.remove('down');
+    };
+    // A finger slides; the pointer follows it from somewhere else, like on a trackpad.
+    const swipe = async (fingerPts, cursorPts, ms) => {
+      const f = glide(finger, fingerPts, ms, true), c = glide(cursor, cursorPts, ms);
+      finger.classList.add('on');
+      await Promise.all([f, c]);
+    };
+    glide(cursor, [[44, 27]], 0);
+    (async () => {
+      for (;;) {
+        await until();
+        mode('', 'Laptop');
+        await sleep(2200);
+        mode('pad', 'Trackpad');
+        await sleep(1000);
+        await swipe([[32, 82], [64, 74], [52, 90]], [[44, 27], [56, 14], [48, 40]], 1900);
+        await tap();
+        finger.classList.remove('on');
+        await sleep(600);
+        mode('pad full land', 'Screen only · the screen is a trackpad');
+        glide(cursor, [[80, 30]], 1000);
+        await sleep(1400);
+        await swipe([[28, 62], [56, 30], [78, 66], [44, 48]], [[80, 30], [112, 12], [134, 40], [96, 24]], 3200);
+        await tap();
+        await sleep(200);
+        await swipe([[44, 48], [30, 70]], [[96, 24], [70, 44]], 900);
+        finger.classList.remove('on');
+        await sleep(700);
+        mode('pad', 'Trackpad');
+        glide(cursor, [[44, 27]], 1000);
+        await sleep(1800);
+      }
+    })();
   }
 
   // ───── Copy for your agent ─────

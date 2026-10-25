@@ -26,6 +26,7 @@ export class Speaker {
     this.loading = ctx.audioWorklet.addModule(new URL('./speaker-worklet.js', import.meta.url)).then(() => {
       this.node = new AudioWorkletNode(ctx, 'duo-speaker', { outputChannelCount: [2] });
       this.node.connect(ctx.destination);
+      console.warn(`speaker: playing the Mac's sound (${ctx.sampleRate} Hz, ${ctx.state}, session ${navigator.audioSession?.type ?? 'n/a'})`);
       // Play even with the iPhone's silent switch on, like a video would (Safari 17+).
       if (navigator.audioSession && navigator.audioSession.type !== 'play-and-record') navigator.audioSession.type = 'playback';
     }).catch((e) => console.warn('speaker: ' + (e?.message || e))).finally(() => { this.loading = null; });

@@ -71,8 +71,11 @@ final class Session {
     /// A chunk of the Mac's sound (MacSound), straight to the phone. Capture queue.
     func ingest(sound d: Data) {
         guard macSound, isAuthed else { return }
+        soundSent &+= 1
         ws.send(binary: d)
     }
+    var soundSent = 0
+    var wantsSound: Bool { macSound }
     private(set) var box = CGSize(width: 1280, height: 800)
     /// The phone wants the Duo display (a virtual display shaped like its screen) and how roomy.
     private(set) var nanoOn = false

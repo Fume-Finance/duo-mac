@@ -8,7 +8,6 @@ Free and open source. Fold your iPhone like a laptop: your Mac's screen on top, 
 <p align="center">
   <a href="https://duo-mac.vercel.app">Website</a> ·
   <a href="#install">Install</a> ·
-  <a href="https://duo-mac.vercel.app/#film">Watch the intro</a> ·
   <a href="LICENSE">MIT License</a>
 </p>
 

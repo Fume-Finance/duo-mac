@@ -124,16 +124,15 @@
     <p class="sub">Same Mac, keyboard and trackpad. Just not as cool.</p>
   </div>
   <div class="phones">
-    <div class="flat-phone" aria-hidden="true">
-      <div class="fp-screen"><div class="mac mini" id="mac-mini"></div><div class="fp-deck"><div class="keyboard" id="keyboard-mini"></div><div class="trackpad"></div></div></div>
+    <div class="flat-phone" id="fp" aria-hidden="true">
+      <div class="fp-screen"><div class="fp-view">
+        <div class="mac mini" id="mac-mini"></div>
+        <div class="fp-deck"><div class="keyboard" id="keyboard-mini"></div><div class="trackpad"></div></div>
+        <div class="fp-finger"></div>
+      </div></div>
     </div>
+    <p class="fp-label" id="fp-label">Laptop</p>
   </div>
-</section>
-
-<section class="section film" id="film">
-  <p class="eyebrow">Fifty seconds</p>
-  <h2>See it in action</h2>
-  <div class="video"><video src="/assets/intro.mp4" poster="/assets/intro-poster.jpg" controls playsinline preload="none"></video></div>
 </section>
 
 <section class="section" id="install">

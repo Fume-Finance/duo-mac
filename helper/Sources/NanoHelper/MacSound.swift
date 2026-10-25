@@ -7,6 +7,10 @@ import Foundation
 /// (Screen frames start with 1.) Silence isn't sent at all.
 enum MacSound {
     static let rate = 24_000
+    /// Diagnostics (capture queue): buffers captured, and those with sound in them; plus the
+    /// format of the last one.
+    nonisolated(unsafe) static var captured = 0, loud = 0
+    nonisolated(unsafe) static var format = ""
 
     static func encode(_ sb: CMSampleBuffer) -> Data? {
         guard let fd = CMSampleBufferGetFormatDescription(sb),
@@ -27,6 +31,7 @@ enum MacSound {
         let buffers = UnsafeMutableAudioBufferListPointer(abl)
         let interleaved = asbd.mFormatFlags & kAudioFormatFlagIsNonInterleaved == 0
         let channels = Int(asbd.mChannelsPerFrame)
+        format = "\(Int(asbd.mSampleRate)) Hz × \(channels)\(interleaved ? " interleaved" : ""), \(buffers.count) buffers"
         guard channels > 0 else { return nil }
         // sample(c, i): channel c of frame i
         func sample(_ c: Int, _ i: Int) -> Float {
