@@ -1,3 +1,4 @@
+import CoreAudio
 import CoreMedia
 import Foundation
 
@@ -75,5 +76,87 @@ enum MacSound {
             }
         }
         return loud < 0.0002 ? nil : data
+    }
+}
+
+/// While the iPhone plays the Mac's sound, the Mac's own speakers are muted (the Mac may be at home,
+/// playing to an empty room); they come back when the phone stops or leaves. Capture doesn't mind:
+/// ScreenCaptureKit records each app's audio before the output device. A speaker that was already
+/// muted is left alone. If Duo Mac stops while it holds them muted, the next launch unmutes them.
+final class MacSpeakers {
+    private static let key = "MacSpeakersMutedUID"
+    private var muted: AudioDeviceID? // main thread
+    private var listening = false
+
+    init() {
+        if let uid = UserDefaults.standard.string(forKey: Self.key) {
+            if let dev = Microphone.deviceID(uid) { Self.setMute(dev, false) }
+            UserDefaults.standard.removeObject(forKey: Self.key)
+        }
+    }
+
+    /// main thread
+    func mute(_ on: Bool) {
+        if on {
+            guard muted == nil, let dev = Self.defaultOutput(), Self.isMuted(dev) == false, Self.setMute(dev, true) else { return }
+            muted = dev
+            if let uid = Microphone.uid(of: dev) { UserDefaults.standard.set(uid, forKey: Self.key) }
+            Log.info("Mac speakers muted while the iPhone plays the sound (\(Microphone.name(of: dev) ?? "output"))")
+            watchOutput()
+        } else if let dev = muted {
+            Self.setMute(dev, false)
+            muted = nil
+            UserDefaults.standard.removeObject(forKey: Self.key)
+            Log.info("Mac speakers back on")
+        }
+    }
+
+    /// Headphones plugged in, or another output picked: mute that one instead.
+    private func watchOutput() {
+        guard !listening else { return }
+        listening = true
+        var a = Self.defaultOutputAddress
+        AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &a, .main) { [weak self] _, _ in
+            guard let self, self.muted != nil, let now = Self.defaultOutput(), now != self.muted else { return }
+            self.mute(false)
+            self.mute(true)
+        }
+    }
+
+    private static var defaultOutputAddress = AudioObjectPropertyAddress(
+        mSelector: kAudioHardwarePropertyDefaultOutputDevice, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+
+    static func defaultOutput() -> AudioDeviceID? {
+        var id = AudioDeviceID(0), size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        return AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &defaultOutputAddress, 0, nil, &size, &id) == noErr && id != 0 ? id : nil
+    }
+
+    /// The device's mute switch: the main element, or else each of the first two channels.
+    private static func muteAddresses(_ dev: AudioDeviceID) -> [AudioObjectPropertyAddress] {
+        for elements in [[kAudioObjectPropertyElementMain], [UInt32(1), UInt32(2)]] {
+            let list = elements.map { AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyMute, mScope: kAudioDevicePropertyScopeOutput, mElement: $0) }
+            if list.allSatisfy({ a in var a = a; var settable = DarwinBoolean(false)
+                return AudioObjectHasProperty(dev, &a) && AudioObjectIsPropertySettable(dev, &a, &settable) == noErr && settable.boolValue }) {
+                return list
+            }
+        }
+        return []
+    }
+
+    static func isMuted(_ dev: AudioDeviceID) -> Bool? {
+        guard var a = muteAddresses(dev).first else { return nil }
+        var v = UInt32(0), size = UInt32(4)
+        return AudioObjectGetPropertyData(dev, &a, 0, nil, &size, &v) == noErr ? v != 0 : nil
+    }
+
+    @discardableResult
+    static func setMute(_ dev: AudioDeviceID, _ on: Bool) -> Bool {
+        let list = muteAddresses(dev)
+        var ok = !list.isEmpty
+        for var a in list {
+            var v = UInt32(on ? 1 : 0)
+            ok = AudioObjectSetPropertyData(dev, &a, 0, nil, 4, &v) == noErr && ok
+        }
+        return ok
     }
 }

@@ -182,7 +182,7 @@ addHapticSwitch($('#trackpad'));
 const hits = new Map();
 let hitSeq = 0, typeBtnTimer = 0;
 function probeText(nx, ny) {
-  if (settings.layout === 'laptop' || !link.open || !iosBar.hidden) return 0;
+  if (view().layout === 'laptop' || !link.open || !iosBar.hidden) return 0;
   const id = ++hitSeq;
   hits.set(id, { text: null, tapped: 0 });
   if (hits.size > 8) hits.delete(hits.keys().next().value);
@@ -215,9 +215,10 @@ $('#tool-kb')?.addEventListener('click', () => openIOSKeyboard());
 $('#tool-set')?.addEventListener('click', () => (sheet.isOpen ? sheet.close() : openSheet()));
 
 // Screen only: the screen is touched where you point (LidTouch), or is one big trackpad.
-const screenIsPad = () => settings.layout === 'screen' && settings.screenTouch === 'trackpad';
+const screenIsPad = () => { const v = view(); return v.layout === 'screen' && v.screenTouch === 'trackpad'; };
 const lidTouch = new LidTouch($('#screen-area'), screen, {
   ...pointer, scroll: scrollMac, swipe3: swipeMac, probe: probeText, tapped: tappedText, enabled: () => !screenIsPad(),
+  screenOnly: () => view().layout === 'screen',
 });
 const screenPad = new Trackpad($('#screen-area'), $('#screen-area'), {
   ...pointer, probe: () => probeText(), tapped: (id) => tappedText(id), scroll: scrollMac, zoom: zoomMac, swipe3: swipeMac,
@@ -321,9 +322,17 @@ function safeArea() {
   return { top: px(c.paddingTop), right: px(c.paddingRight), bottom: px(c.paddingBottom), left: px(c.paddingLeft) };
 }
 
+/** What the screen shows. Upright and open: the Layout setting. Turned sideways, or folded with
+ *  "Folding closes the lid" off: all screen, and the whole screen is a trackpad. */
+let sideways = false, foldedOpen = false;
+function view() {
+  if (sideways || foldedOpen) return { layout: 'screen', screenTouch: 'trackpad' };
+  return { layout: settings.layout, screenTouch: settings.screenTouch };
+}
+
 /** Screen share of the height: the setting, or automatic (more screen on tall, non-folding phones). */
 function split() {
-  const own = settings.layout === 'trackpad' ? settings.hingePad : settings.hinge; // each layout keeps its own
+  const own = view().layout === 'trackpad' ? settings.hingePad : settings.hinge; // each layout keeps its own
   if (own) return own;
   // A folded foldable can say where the fold is (Viewport Segments API; behind a flag in Safari 27.1).
   const seg = window.viewport?.segments;
@@ -333,20 +342,22 @@ function split() {
 
 function layout() {
   const H = app.clientHeight || window.innerHeight;
-  const screenOnly = settings.layout === 'screen';
-  const padOnly = settings.layout === 'trackpad';
-  app.classList.toggle('screen-only', screenOnly);
-  app.classList.toggle('pad-only', padOnly);
-  $('#tools').hidden = settings.layout === 'laptop';
-  app.classList.toggle('nano', settings.macDisplay === 'nano');
-  app.classList.toggle('show-notch', !!settings.notch);
-  app.classList.toggle('haptics', !!settings.haptics);
   // iPhone Duo (inner display, fold across): the status bar is an 82 pt strip with the clock and status
   // ring in its right corner only (a regular iPhone's runs across a 47–62 pt one). iOS can't hide it.
   const tallTop = safeArea().top >= 70;
+  checkFold(tallTop);
+  sideways = innerWidth > innerHeight;
+  const v = view();
+  const screenOnly = v.layout === 'screen';
+  const padOnly = v.layout === 'trackpad';
+  app.classList.toggle('screen-only', screenOnly);
+  app.classList.toggle('pad-only', padOnly);
+  $('#tools').hidden = v.layout === 'laptop';
+  app.classList.toggle('nano', settings.macDisplay === 'nano');
+  app.classList.toggle('show-notch', !!settings.notch);
+  app.classList.toggle('haptics', !!settings.haptics);
   app.classList.toggle('tall-top', tallTop);
   app.classList.toggle('full-top', tallTop && settings.topEdge === 'full');
-  checkFold(tallTop);
   app.style.setProperty('--lid-h', `${screenOnly ? H : Math.round(H * split())}px`);
   // Stats live on the trackpad, out of the way; with no trackpad, on the screen.
   const statsHome = screenOnly ? $('#screen-area') : $('#trackpad');
@@ -377,7 +388,9 @@ function checkFold(tallTop) {
     lastShort = short;
     remoteLog('info', [`fold: ${innerWidth}×${innerHeight} top ${safeArea().top} (inner screen short side ${settings.duoShort})`]);
   }
-  const folded = settings.foldCloses && settings.seenDuo && settings.duoShort > 0 && short < settings.duoShort * 0.85;
+  const foldedShape = settings.seenDuo && settings.duoShort > 0 && short < settings.duoShort * 0.85;
+  const folded = settings.foldCloses && foldedShape;
+  foldedOpen = foldedShape && !settings.foldCloses; // used folded: the whole screen is a trackpad
   if (lidClosed) orientLid();
   clearTimeout(foldTimer);
   if (folded === lidClosed) return;
@@ -426,7 +439,7 @@ function layoutDeck() {
   const padBot = Math.max(6, sab * 0.75); // just clear of the home indicator, like a tab bar
   const aw = W - 2 * padX, ah = H - padTop - padBot;
 
-  if (settings.layout === 'trackpad') {
+  if (view().layout === 'trackpad') {
     // No keyboard: the trackpad fills the half, with the same margins.
     const tp = $('#trackpad'), zone = $('#padzone');
     const tw = aw, th = H - padTop - padBot;

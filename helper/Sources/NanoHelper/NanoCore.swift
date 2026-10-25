@@ -14,6 +14,7 @@ final class NanoCore {
     let webRoot: URL
     let appIcon: NSImage?
     let microphone = Microphone()
+    let speakers = MacSpeakers()
 
     private let configLock = NSLock()
     private var _config: NanoConfig
@@ -341,6 +342,7 @@ final class NanoCore {
         Log.info("📱 \(s.clientName) disconnected")
         DispatchQueue.main.async {
             self.setMicrophone(false)
+            self.speakers.mute(false)
             self.scheduleNanoTeardown()
             self.setAwake(false)
             self.model.connected = false

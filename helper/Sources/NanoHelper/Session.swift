@@ -215,7 +215,10 @@ final class Session {
         case "aux": inj.aux(Int32(clamping: int(m["k"])), down: int(m["d"]) == 1)
         case "act": if let a = m["a"] as? String { inj.action(a) }
         case "rel": inj.releaseAll()
-        case "sound": macSound = (m["on"] as? Bool) ?? false
+        case "sound":
+            macSound = (m["on"] as? Bool) ?? false
+            let sound = macSound
+            DispatchQueue.main.async { [weak self] in self?.core.speakers.mute(sound) }
         case "z": if let p = m["p"] as? String { inj.magnify(phase: p, amount: num(m["m"])) }
         case "mic":
             let on = (m["on"] as? Bool) ?? false
@@ -232,6 +235,8 @@ final class Session {
         case "ack": ack(UInt32(truncatingIfNeeded: int(m["f"])))
         case "hello":
             macSound = (m["sound"] as? Bool) ?? false
+            let sound = macSound
+            DispatchQueue.main.async { [weak self] in self?.core.speakers.mute(sound) }
             readBox(m["box"])
             if let q = (m["q"] as? String).flatMap(Quality.init(rawValue:)) { quality = q }
             readNano(m["nano"])

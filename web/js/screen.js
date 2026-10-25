@@ -231,7 +231,7 @@ export class LidTouch {
   }
 
   /** Taps click where they land: always in Screen only, else when the setting says so. */
-  get taps() { return settings.touchscreen || settings.layout === 'screen'; }
+  get taps() { return settings.touchscreen || !!this.cb.screenOnly?.(); }
 
   down(e) {
     if (e.target.closest('button, #overlay:not(.hidden)')) return;

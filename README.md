@@ -91,7 +91,7 @@ Duo Mac lives in the **menu bar**. Its panel shows the connected iPhone and the 
 | pinch | zoom, like a MacBook trackpad: the page or app under the pointer zooms |
 | 3- or 4-finger swipe ↑ / ↓ / ← → | Mission Control / App Exposé / switch Spaces |
 
-**Screen** (top half, or the whole phone in *Screen only*): tap to click exactly there, drag to drag, 2 fingers to scroll (with momentum), pinch to zoom, 2-finger tap to right-click, 3 or 4 fingers to swipe for Mission Control, App Exposé and Spaces. *Screen only* fills the whole phone, edge to edge, and reshapes when you rotate it. In *Screen only*, tapping a text field on the Mac brings up the iPhone's own keyboard, and you can choose to use the whole screen as a trackpad instead (Settings › Display › *Touching the screen*): slide to move the pointer, tap to click, with all the trackpad gestures.
+**Screen** (top half, or the whole phone in *Screen only*): tap to click exactly there, drag to drag, 2 fingers to scroll (with momentum), pinch to zoom, 2-finger tap to right-click, 3 or 4 fingers to swipe for Mission Control, App Exposé and Spaces. *Screen only* fills the whole phone, edge to edge, and reshapes when you rotate it. The layout applies with the iPhone upright; turned sideways (or used folded), it's always all screen with the whole screen as a trackpad. In *Screen only*, tapping a text field on the Mac brings up the iPhone's own keyboard, and you can choose to use the whole screen as a trackpad instead (Settings › Display › *Touching the screen*): slide to move the pointer, tap to click, with all the trackpad gestures.
 
 <img src="docs/images/iphone-settings.png" width="330" align="right" alt="Duo Mac settings on the iPhone: a full-screen page with visual options">
 
@@ -109,7 +109,7 @@ Duo Mac lives in the **menu bar**. Its panel shows the connected iPhone and the 
 
 **Fold to close** (iPhone Duo): folding the phone turns its screen into a closed MacBook lid, edge to edge, and hangs up, so the Mac stops sharing its screen and can sleep; unfolding picks up where you left off. To use Duo Mac folded, turn off Settings › Display › *Folding closes the lid*.
 
-**The Mac's sound** plays on the iPhone's speaker (music, videos, calls, alerts), captured along with the screen, so it needs no extra permission. Turn it off in Settings › Sound.
+**The Mac's sound** plays on the iPhone's speaker (music, videos, calls, alerts), captured along with the screen, so it needs no extra permission; the Mac's own speakers are muted meanwhile and come back when the iPhone disconnects. Turn it off in Settings › Sound.
 
 **iPhone microphone** (optional): Mac apps (dictation, calls, voice modes) can hear the iPhone instead of the Mac. Add the **Duo Mac Microphone** once on the Mac (menu bar › Settings… › General › Install…, asks for your password; sound pauses for a second while Core Audio restarts), then turn on *Use this iPhone's microphone* in the iPhone settings (it tells you if the Mac doesn't have the driver yet). While it's on, the Duo Mac Microphone is the Mac's default input; your usual microphone comes back when it's off or the iPhone disconnects. It's a small loopback audio driver (`driver/`): Duo Mac plays the phone's audio into a hidden *Feed* device, and it comes back out of the microphone.
 
