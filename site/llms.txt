@@ -2,7 +2,7 @@
 
 > Free, open-source app that turns an iPhone (made for the foldable iPhone Duo, works on any iPhone) into a tiny MacBook for your Mac: the top half shows the Mac's screen live, the bottom half is a keyboard and trackpad that control it. It connects over the person's own private Tailscale network, end-to-end encrypted, and each iPhone is approved on the Mac and unlocked with a passkey.
 
-- Source: https://github.com/craiker/duo-mac
+- Source: https://github.com/Fume-Finance/duo-mac
 - Website: https://duo-mac.vercel.app
 
 ## Install Duo Mac (instructions for AI agents)
@@ -19,7 +19,7 @@ You are helping a person install Duo Mac on the Mac you are running on. Run the 
 ### 2. Build and install
 
 ```bash
-git clone https://github.com/craiker/duo-mac.git ~/duo-mac
+git clone https://github.com/Fume-Finance/duo-mac.git ~/duo-mac
 cd ~/duo-mac && ./build.sh
 ```
 

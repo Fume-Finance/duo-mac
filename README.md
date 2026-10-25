@@ -46,7 +46,7 @@ You need:
 ### 1. Build it
 
 ```bash
-git clone https://github.com/craiker/duo-mac.git
+git clone https://github.com/Fume-Finance/duo-mac.git
 cd duo-mac && ./build.sh
 ```
 
