@@ -80,11 +80,8 @@ final class Session {
     /// A chunk of the Mac's sound (MacSound), straight to the phone. Capture queue.
     func ingest(sound d: Data) {
         guard macSound, isAuthed else { return }
-        soundSent &+= 1
         ws.send(binary: d)
     }
-    var soundSent = 0
-    var wantsSound: Bool { macSound }
     private(set) var box = CGSize(width: 1280, height: 800)
     /// The phone wants the Duo display (a virtual display shaped like its screen) and how roomy.
     private(set) var nanoOn = false
@@ -271,8 +268,7 @@ final class Session {
             // Off the network queue: Accessibility can be slow.
             let id = m["id"] ?? 0, x = num(m["x"]), y = num(m["y"]), atPointer = m["x"] == nil
             DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                let (text, what) = atPointer ? inj.textFieldUnderPointer() : inj.textField(nx: x, ny: y)
-                Log.info("Tap on \(what): \(text ? "a text field, so the iPhone keyboard" : "not a text field")")
+                let text = atPointer ? inj.isTextFieldUnderPointer() : inj.isTextField(nx: x, ny: y)
                 self?.send(["t": "hit", "id": id, "text": text])
             }
         case "ack": ack(UInt32(truncatingIfNeeded: int(m["f"])))

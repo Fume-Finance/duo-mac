@@ -70,9 +70,7 @@ final class NanoCore {
         installKeymap(keymap)
         source.onFrame = { [weak self] pb in self?.deliver(pb) }
         source.onAudio = { [weak self] sb in
-            MacSound.captured &+= 1
             guard let self, let d = MacSound.encode(sb) else { return }
-            MacSound.loud &+= 1
             self.sinkLock.lock()
             let s = self.sink
             self.sinkLock.unlock()
@@ -827,8 +825,6 @@ final class NanoCore {
             let captured = self.source.framesCaptured
             if self.statTicks % 5 == 0 {
                 Log.info("Stats: captured \((captured - self.lastCaptured) / 5)/s, waiting for \(s.outstandingCount) ack(s), rtt via phone")
-                Log.info("Stats: sound \(MacSound.captured) buffers captured (\(MacSound.loud) with sound, \(MacSound.format)), \(s.soundSent) sent; phone wants it: \(s.wantsSound)")
-                MacSound.captured = 0; MacSound.loud = 0; s.soundSent = 0
                 self.lastCaptured = captured
             }
             s.takeStats { frames, bytes, encode, rtt, qscale in

@@ -8,27 +8,20 @@ import Foundation
 /// (Screen frames start with 1.) Silence isn't sent at all.
 enum MacSound {
     static let rate = 24_000
-    /// Diagnostics (capture queue): buffers captured, and those with sound in them; plus the
-    /// format of the last one.
-    nonisolated(unsafe) static var captured = 0, loud = 0
-    nonisolated(unsafe) static var format = ""
 
     static func encode(_ sb: CMSampleBuffer) -> Data? {
         guard let fd = CMSampleBufferGetFormatDescription(sb),
-              let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(fd)?.pointee else { format = "no format"; return nil }
+              let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(fd)?.pointee else { return nil }
         guard asbd.mFormatID == kAudioFormatLinearPCM, asbd.mFormatFlags & kAudioFormatFlagIsFloat != 0,
-              asbd.mBitsPerChannel == 32, asbd.mSampleRate > 0 else {
-            format = "unsupported: id \(asbd.mFormatID) flags \(asbd.mFormatFlags) bits \(asbd.mBitsPerChannel) rate \(asbd.mSampleRate)"
-            return nil
-        }
+              asbd.mBitsPerChannel == 32, asbd.mSampleRate > 0 else { return nil }
         let frames = CMSampleBufferGetNumSamples(sb)
-        guard frames > 0 else { format = "empty"; return nil }
+        guard frames > 0 else { return nil }
         // Ask how big the buffer list must be, then fetch it.
         var size = 0
         var status = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
             sb, bufferListSizeNeededOut: &size, bufferListOut: nil, bufferListSize: 0,
             blockBufferAllocator: nil, blockBufferMemoryAllocator: nil, flags: 0, blockBufferOut: nil)
-        guard status == noErr, size > 0 else { format = "buffer list size: \(status)"; return nil }
+        guard status == noErr, size > 0 else { return nil }
         let raw = UnsafeMutableRawPointer.allocate(byteCount: size, alignment: 16)
         defer { raw.deallocate() }
         let abl = raw.bindMemory(to: AudioBufferList.self, capacity: 1)
@@ -37,11 +30,10 @@ enum MacSound {
             sb, bufferListSizeNeededOut: nil, bufferListOut: abl, bufferListSize: size,
             blockBufferAllocator: nil, blockBufferMemoryAllocator: nil,
             flags: kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment, blockBufferOut: &block)
-        guard status == noErr else { format = "buffer list: \(status)"; return nil }
+        guard status == noErr else { return nil }
         let buffers = UnsafeMutableAudioBufferListPointer(abl)
         let interleaved = asbd.mFormatFlags & kAudioFormatFlagIsNonInterleaved == 0
         let channels = Int(asbd.mChannelsPerFrame)
-        format = "\(Int(asbd.mSampleRate)) Hz × \(channels)\(interleaved ? " interleaved" : ""), \(buffers.count) buffers"
         guard channels > 0 else { return nil }
         // sample(c, i): channel c of frame i
         func sample(_ c: Int, _ i: Int) -> Float {
