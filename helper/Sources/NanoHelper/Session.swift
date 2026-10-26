@@ -13,6 +13,15 @@ enum Quality: String {
         }
     }
 
+    /// H.264 bitrate on a clear link (bits/s); lowered while the link is congested.
+    var videoBitrate: Double {
+        switch self {
+        case .fast: return 2_500_000
+        case .balanced: return 5_000_000
+        case .sharp: return 9_000_000
+        }
+    }
+
     /// Quality used to re-send regions once they stop changing, so still text looks crisp.
     var refineQuality: Double {
         switch self {
@@ -87,6 +96,17 @@ final class Session {
     private let pendingLock = NSLock()
     private var pending: FrameBuffer?
     private var hasPending = false
+    // Video mode (the phone decodes H.264): the capture thread hands over the pixel buffer itself.
+    private var videoMode = false
+    private var pendingPB: CVPixelBuffer?
+    private var latestPB: CVPixelBuffer?      // the newest capture, in either mode (to switch to video on a still screen)
+
+    // encode queue, video mode
+    private var encoder: H264Encoder?
+    private var lastPB: CVPixelBuffer?        // the picture the phone has (or is getting)
+    private var encoding = false              // a frame is in the encoder
+    private var needKey = true                // next frame must be a key frame
+    private var sharpenLeft = 0               // re-encodes of a still picture, so it sharpens
 
     // encode queue
     private let encodeQueue = DispatchQueue(label: "nano.encode", qos: .userInteractive)
@@ -173,8 +193,13 @@ final class Session {
             self.ended = true
             self.reference = nil
             self.working = nil
+            self.encoder?.invalidate()
+            self.encoder = nil
+            self.lastPB = nil
         }
         pendingLock.lock()
+        pendingPB = nil
+        latestPB = nil
         pending = nil
         hasPending = false
         pendingLock.unlock()
@@ -235,7 +260,7 @@ final class Session {
         case "sound":
             macSound = (m["on"] as? Bool) ?? false
             let sound = macSound
-            DispatchQueue.main.async { [weak self] in self?.core.speakers.mute(sound) }
+            DispatchQueue.main.async { [weak self] in self?.core.muteSpeakers(sound) }
         case "z": if let p = m["p"] as? String { inj.magnify(phase: p, amount: num(m["m"])) }
         case "mic":
             let on = (m["on"] as? Bool) ?? false
@@ -251,9 +276,10 @@ final class Session {
             }
         case "ack": ack(UInt32(truncatingIfNeeded: int(m["f"])))
         case "hello":
+            setVideo((m["codec"] as? String) == "h264")
             macSound = (m["sound"] as? Bool) ?? false
             let sound = macSound
-            DispatchQueue.main.async { [weak self] in self?.core.speakers.mute(sound) }
+            DispatchQueue.main.async { [weak self] in self?.core.muteSpeakers(sound) }
             readBox(m["box"])
             if let q = (m["q"] as? String).flatMap(Quality.init(rawValue:)) { quality = q }
             readNano(m["nano"])
@@ -271,6 +297,8 @@ final class Session {
                 core.reconfigure(self)
             }
         case "refresh": refresh()
+        case "codec": setVideo((m["c"] as? String) == "h264")
+        case "key": requestKeyFrame()
         case "bye": core.endSession(self)
         case "display": core.switchDisplay(self, index: int(m["i"], -1))
         default:
@@ -307,6 +335,14 @@ final class Session {
     func ingest(_ pb: CVPixelBuffer) {
         let w = CVPixelBufferGetWidth(pb), h = CVPixelBufferGetHeight(pb)
         pendingLock.lock()
+        latestPB = pb
+        if videoMode {
+            pendingPB = pb
+            hasPending = true
+            pendingLock.unlock()
+            encodeQueue.async { self.pump() }
+            return
+        }
         if pending == nil || pending!.width != w || pending!.height != h {
             pending = FrameBuffer(width: w, height: h)
         }
@@ -346,14 +382,49 @@ final class Session {
         } else if srtt < minRtt * 1.5 + 0.04 {
             qualityScale = min(1, qualityScale + 0.05)
         }
+        encoder?.setBitrate(videoBitrate)
     }
 
     func refresh() {
         encodeQueue.async {
             self.forceFull = true
+            self.needKey = true
             self.pump()
         }
     }
+
+    /// The phone can decode H.264 (or stopped wanting it): switch how frames are sent.
+    func setVideo(_ on: Bool) {
+        pendingLock.lock()
+        let changed = videoMode != on
+        videoMode = on
+        pendingPB = nil
+        hasPending = false
+        let latest = latestPB
+        pendingLock.unlock()
+        guard changed else { return }
+        Log.info("📱 \(clientName): \(on ? "H.264 video" : "JPEG tiles")")
+        encodeQueue.async {
+            self.encoder?.invalidate()
+            self.encoder = nil
+            self.lastPB = on ? latest : nil // start from the picture on screen, even if it's still
+            self.needKey = true
+            self.forceFull = true
+            self.reference = nil
+            self.outstanding.removeAll()
+            self.pump()
+        }
+    }
+
+    /// The phone's decoder lost track (an error, a gap): start again from a key frame.
+    func requestKeyFrame() {
+        encodeQueue.async {
+            self.needKey = true
+            self.pump()
+        }
+    }
+
+    private var videoBitrate: Int { Int(quality.videoBitrate * qualityScale) }
 
     /// encode queue
     private func pump() {
@@ -367,8 +438,13 @@ final class Session {
             outstanding.removeAll()
             resynced = true
             forceFull = true
+            needKey = true
         }
         pendingLock.lock()
+        if videoMode {
+            pendingLock.unlock()
+            return pumpVideo()
+        }
         let fresh = hasPending
         if fresh {
             swap(&pending, &working)
@@ -421,6 +497,7 @@ final class Session {
 
     /// encode queue
     private func refine() {
+        if encoder != nil { return sharpen() }
         guard !blurry.isEmpty, let ref = reference else { return }
         pendingLock.lock()
         let busy = hasPending
@@ -457,14 +534,7 @@ final class Session {
             return
         }
 
-        // Pointer position in stream pixels, so the phone can keep it in view when zoomed in.
-        let bounds = core.injector.bounds
-        let loc = core.injector.pointerLocation()
-        var cx = UInt16.max, cy = UInt16.max
-        if bounds.width > 0, bounds.contains(loc) {
-            cx = UInt16(clamping: Int((loc.x - bounds.minX) / bounds.width * Double(w)))
-            cy = UInt16(clamping: Int((loc.y - bounds.minY) / bounds.height * Double(h)))
-        }
+        let (cx, cy) = pointer(w, h)
 
         frameNo &+= 1
         let total = parts.reduce(0) { $0 + $1.1.count }
@@ -489,6 +559,105 @@ final class Session {
         lastSendAt = Date()
         statFrames += 1
         statBytes += msg.count
+    }
+
+    // MARK: Video (H.264)
+
+    /// encode queue: encode the newest picture, one at a time and within the in-flight budget.
+    private func pumpVideo() {
+        guard !encoding else { return }
+        pendingLock.lock()
+        let fresh = hasPending ? pendingPB : nil
+        if fresh != nil { pendingPB = nil; hasPending = false }
+        pendingLock.unlock()
+        // Nothing new, but the phone needs a key frame (a refresh, a decoder error): the last picture.
+        guard let pb = fresh ?? (needKey ? lastPB : nil) else { return }
+        lastPB = pb
+        encodeVideo(pb)
+        sharpenLeft = 2
+        scheduleRefine()
+    }
+
+    /// encode queue
+    private func encodeVideo(_ pb: CVPixelBuffer) {
+        let w = CVPixelBufferGetWidth(pb), h = CVPixelBufferGetHeight(pb)
+        if encoder == nil || encoder!.width != w || encoder!.height != h {
+            encoder?.invalidate()
+            encoder = H264Encoder(width: w, height: h, bitrate: videoBitrate)
+            needKey = true
+            guard encoder != nil else { return }
+        }
+        let key = needKey
+        needKey = false
+        encoding = true
+        let t0 = Date()
+        encoder!.encode(pb, key: key) { [weak self] out in
+            guard let self else { return }
+            self.encodeQueue.async {
+                self.encoding = false
+                self.statEncode += Date().timeIntervalSince(t0)
+                if let out, !self.ended { self.sendVideo(out, w, h) } else { self.needKey = true }
+                self.pump()
+            }
+        }
+    }
+
+    /// encode queue: once the screen has been still for a moment, encode the same picture again
+    /// (twice): the encoder spends those bits on detail, so text that moved comes back crisp.
+    private func sharpen() {
+        guard sharpenLeft > 0, let pb = lastPB else { return }
+        pendingLock.lock()
+        let busy = hasPending
+        pendingLock.unlock()
+        if busy || encoding || !outstanding.isEmpty || congested {
+            scheduleRefine(after: 0.2)
+            return
+        }
+        sharpenLeft -= 1
+        encodeVideo(pb)
+        if sharpenLeft > 0 { scheduleRefine(after: 0.25) }
+    }
+
+    /// encode queue. Messages: [4] config (before each key frame), [3] a frame:
+    ///   [4][codec length][width u16][height u16][codec ascii][avcC]
+    ///   [3][flags: bit0 key][0 u16][frame u32][width u16][height u16][pointer x u16][pointer y u16][AVCC]
+    private func sendVideo(_ out: H264Encoder.Output, _ w: Int, _ h: Int) {
+        if let c = out.config {
+            var cfg = Data()
+            cfg.append(4)
+            cfg.append(UInt8(c.codec.utf8.count))
+            cfg.appendLE(UInt16(w))
+            cfg.appendLE(UInt16(h))
+            cfg.append(contentsOf: Array(c.codec.utf8))
+            cfg.append(c.avcC)
+            ws.send(binary: cfg)
+        }
+        let (cx, cy) = pointer(w, h)
+        frameNo &+= 1
+        var msg = Data(capacity: 16 + out.data.count)
+        msg.append(3)
+        msg.append(out.key ? 1 : 0)
+        msg.appendLE(UInt16(0))
+        msg.appendLE(frameNo)
+        msg.appendLE(UInt16(w))
+        msg.appendLE(UInt16(h))
+        msg.appendLE(cx)
+        msg.appendLE(cy)
+        msg.append(out.data)
+        ws.send(binary: msg)
+        outstanding[frameNo] = (Date(), msg.count)
+        lastSendAt = Date()
+        statFrames += 1
+        statBytes += msg.count
+    }
+
+    /// Pointer position in stream pixels, so the phone can keep it in view when zoomed in.
+    private func pointer(_ w: Int, _ h: Int) -> (UInt16, UInt16) {
+        let bounds = core.injector.bounds
+        let loc = core.injector.pointerLocation()
+        guard bounds.width > 0, bounds.contains(loc) else { return (.max, .max) }
+        return (UInt16(clamping: Int((loc.x - bounds.minX) / bounds.width * Double(w))),
+                UInt16(clamping: Int((loc.y - bounds.minY) / bounds.height * Double(h))))
     }
 
     var outstandingCount: Int { encodeQueue.sync { outstanding.count } }

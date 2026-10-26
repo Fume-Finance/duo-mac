@@ -771,6 +771,13 @@ final class NanoCore {
         model.micActive = microphone.active
     }
 
+    /// The phone plays the Mac's sound: mute the Mac's own speakers meanwhile. (Not with the test
+    /// pattern: a test phone doesn't get the Mac's sound, so the real speakers are left alone.) main thread
+    func muteSpeakers(_ on: Bool) {
+        guard !options.testPattern else { return }
+        speakers.mute(on)
+    }
+
     /// The microphone was just installed (or updated): tell the phone, so its setting works right away.
     func microphoneInstalled() {
         let msg: [String: Any] = ["t": "mic", "installed": Microphone.isInstalled, "update": Microphone.needsUpdate, "status": true]

@@ -37,6 +37,22 @@ export class Screen {
     this.decodeMs = 0;
     this.gotFrame = false;
     this.onFirstFrame = null;
+    // Video (H.264) mode
+    this.decoder = null;
+    this.vReady = false;      // configured with the Mac's stream description
+    this.vNeedKey = true;     // waiting for a key frame
+    this.vPending = new Map(); // frame id → { resolve, t0, bytes, cx, cy }, until decoded and drawn
+    this.onNeedKey = null;    // ask the Mac for a key frame
+  }
+
+  /** Can this phone decode the Mac's H.264 video (WebCodecs, hardware)? */
+  static async videoSupported() {
+    if (!('VideoDecoder' in window) || !('EncodedVideoChunk' in window)) return false;
+    try {
+      return !!(await VideoDecoder.isConfigSupported({ codec: 'avc1.640033', optimizeForLatency: true })).supported;
+    } catch {
+      return false;
+    }
   }
 
   setDisplay(display) {
@@ -79,8 +95,11 @@ export class Screen {
 
   // ───── Frames ─────
 
-  /** Queues a frame; resolves with its id once drawn (frames are drawn strictly in order). */
+  /** Queues a frame; resolves with its id once drawn (frames are drawn strictly in order), or
+   *  with null for a message that isn't a frame (the video's description). */
   enqueue(buf) {
+    const type = new Uint8Array(buf, 0, 1)[0];
+    if (type === 3 || type === 4) return this.video(buf); // the decoder keeps them in order
     const p = this.chain.then(() => this.draw(buf)).catch((e) => {
       console.error('frame error: ' + (e?.message || e));
       try { return new DataView(buf).getUint32(4, true); } catch { return 0; }
@@ -100,11 +119,7 @@ export class Screen {
     const cx = dv.getUint16(12, true), cy = dv.getUint16(14, true);
     if (w !== this.streamW || h !== this.streamH) {
       if (!full) return id; // partial update for a size we no longer show
-      this.streamW = w;
-      this.streamH = h;
-      this.canvas.width = w;
-      this.canvas.height = h;
-      this.layout();
+      this.setSize(w, h);
     }
     let off = 16 + n * 12;
     const rects = [];
@@ -124,16 +139,99 @@ export class Screen {
       this.ctx.drawImage(img, rects[i].x, rects[i].y);
       img.close?.();
     }
+    this.shown(buf.byteLength, t0, cx, cy);
+    return id;
+  }
+
+  setSize(w, h) {
+    if (w === this.streamW && h === this.streamH) return;
+    this.streamW = w;
+    this.streamH = h;
+    this.canvas.width = w;
+    this.canvas.height = h;
+    this.layout();
+  }
+
+  /** A frame is on screen: counters, the pointer (for zoom), the first-frame hook. */
+  shown(bytes, t0, cx, cy) {
     this.cursor = cx === 0xffff ? null : [cx, cy];
     this.frames++;
-    this.bytes += buf.byteLength;
+    this.bytes += bytes;
     this.decodeMs += performance.now() - t0;
     if (!this.gotFrame) {
       this.gotFrame = true;
       this.onFirstFrame?.();
     }
     if (this.zoom.s > 1.01) this.followCursor();
-    return id;
+  }
+
+  // ───── Video (H.264): the phone's hardware decoder ─────
+  // [4] description: [4][codec length][w u16][h u16][codec][avcC], before each key frame.
+  // [3] frame:       [3][flags: bit0 key][0 u16][id u32][w u16][h u16][pointer x u16][y u16][AVCC]
+
+  video(buf) {
+    const dv = new DataView(buf);
+    if (dv.getUint8(0) === 4) {
+      const n = dv.getUint8(1), w = dv.getUint16(2, true), h = dv.getUint16(4, true);
+      const codec = new TextDecoder().decode(new Uint8Array(buf, 6, n));
+      this.setSize(w, h);
+      try {
+        if (!this.decoder || this.decoder.state === 'closed') this.makeDecoder();
+        this.decoder.configure({ codec, description: new Uint8Array(buf, 6 + n), optimizeForLatency: true, hardwareAcceleration: 'prefer-hardware' });
+        this.vReady = true;
+        this.vNeedKey = true;
+      } catch (e) {
+        this.videoFailed(e);
+      }
+      return Promise.resolve(null);
+    }
+    const t0 = performance.now();
+    const key = (dv.getUint8(1) & 1) === 1, id = dv.getUint32(4, true);
+    const cx = dv.getUint16(12, true), cy = dv.getUint16(14, true);
+    if (!this.vReady || this.decoder?.state !== 'configured' || (this.vNeedKey && !key)) {
+      if (!key) this.onNeedKey?.();
+      return Promise.resolve(id); // still acknowledged, so the Mac keeps sending
+    }
+    this.vNeedKey = false;
+    return new Promise((resolve) => {
+      this.vPending.set(id, { resolve, t0, bytes: buf.byteLength, cx, cy });
+      try {
+        this.decoder.decode(new EncodedVideoChunk({ type: key ? 'key' : 'delta', timestamp: id, data: new Uint8Array(buf, 16) }));
+      } catch (e) {
+        this.videoFailed(e);
+      }
+    });
+  }
+
+  makeDecoder() {
+    this.decoder = new VideoDecoder({
+      output: (frame) => {
+        const id = frame.timestamp;
+        this.ctx.drawImage(frame, 0, 0, this.streamW, this.streamH);
+        frame.close();
+        // Frames come out in order; anything older still waiting was dropped by the decoder.
+        for (const [k, p] of this.vPending) {
+          if (k > id) break;
+          this.vPending.delete(k);
+          if (k === id) this.shown(p.bytes, p.t0, p.cx, p.cy);
+          p.resolve(k);
+        }
+        if (this.zoom.s > 1.01) this.followCursor();
+      },
+      error: (e) => this.videoFailed(e),
+    });
+  }
+
+  /** The decoder broke: let go of the frames it held (acknowledged anyway) and start over from
+   *  the next key frame, with a fresh decoder. */
+  videoFailed(e) {
+    console.warn('video: ' + (e?.message || e));
+    for (const [k, p] of this.vPending) p.resolve(k);
+    this.vPending.clear();
+    try { this.decoder?.close(); } catch {}
+    this.decoder = null;
+    this.vReady = false;
+    this.onNeedKey?.();
   }
 
   /** Client coordinates → normalised [0..1] position on the Mac screen. */

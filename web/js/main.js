@@ -529,6 +529,7 @@ onSetting((k, v) => {
     v ? micOn() : micOff();
   }
   if (k === 'quality') link.send({ t: 'quality', q: v });
+  if (k === 'video') link.send({ t: 'codec', c: codec() });
   if (k === 'macSound') { link.send({ t: 'sound', on: !!v }); if (!v) speaker.stop(); }
   if (k === 'stats') statsEl.hidden = !v;
   if (k === 'fnStandard') keyboard.renderFnRow();
@@ -1083,6 +1084,7 @@ link = new Link({
   onFrame(buf) {
     if (new Uint8Array(buf, 0, 1)[0] === 2) { speaker.push(buf); return; } // the Mac's sound
     screen.enqueue(buf).then((id) => {
+      if (id == null) return; // the video's description, not a frame
       link.send({ t: 'ack', f: id });
       if (powered && overlay.className !== 'hidden' && overlay.className !== 'auth') {
         if (fatal === 'permission') fatal = null; // frames again: the problem is gone
@@ -1098,9 +1100,24 @@ function nanoRequest() {
 
 function sendHello() {
   lastBox = screen.boxPixels();
-  link.send({ t: 'hello', v: 1, box: lastBox, q: settings.quality, standalone: !!navigator.standalone, nano: nanoRequest(), sound: !!settings.macSound });
+  link.send({ t: 'hello', v: 1, box: lastBox, q: settings.quality, standalone: !!navigator.standalone, nano: nanoRequest(), sound: !!settings.macSound, codec: codec() });
   if (settings.mic) link.send({ t: 'mic', on: true });
 }
+
+// ───── H.264 video: much less data than JPEG tiles when a lot changes (if the phone can decode it) ─────
+let videoOK = false;
+const codec = () => (videoOK && settings.video ? 'h264' : 'jpeg');
+Screen.videoSupported().then((ok) => {
+  videoOK = ok;
+  remoteLog('info', [`video: H.264 decoding ${ok ? 'available' : 'not available'}`]);
+  if (ok && settings.video && link.open) link.send({ t: 'codec', c: codec() });
+});
+let keyAsked = 0;
+screen.onNeedKey = () => {
+  if (performance.now() - keyAsked < 500) return;
+  keyAsked = performance.now();
+  link.send({ t: 'key' });
+};
 
 // ───── The Mac's sound, on the iPhone ─────
 const speaker = new Speaker();

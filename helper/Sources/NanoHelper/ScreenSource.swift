@@ -218,8 +218,8 @@ final class ScreenSource: NSObject, FrameSource, SCStreamOutput, SCStreamDelegat
 
     static func config(_ w: Int, _ h: Int, _ fps: Int) -> SCStreamConfiguration {
         let c = SCStreamConfiguration()
-        c.width = w
-        c.height = h
+        c.width = w & ~1  // even sizes: H.264 needs them
+        c.height = h & ~1
         c.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(max(1, fps)))
         c.pixelFormat = kCVPixelFormatType_32BGRA
         c.colorSpaceName = CGColorSpace.sRGB

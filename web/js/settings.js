@@ -25,6 +25,7 @@ export const DEFAULTS = {
   hintSeen: false,
   mic: false,           // stream this iPhone's microphone to the Mac (the Duo Mac Microphone)
   macSound: true,       // play the Mac's sound on this iPhone
+  video: true,          // H.264 video when the phone can decode it (else JPEG tiles)
   foldCloses: true,     // iPhone Duo: folding it shows a closed lid (and lets the Mac sleep)
   seenDuo: false,       // this phone has opened up into an iPhone Duo's inner screen
   duoShort: 0,          // that inner screen's short side (CSS px), to tell folded from unfolded
