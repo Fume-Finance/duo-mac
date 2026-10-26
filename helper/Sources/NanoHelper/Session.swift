@@ -126,7 +126,7 @@ final class Session {
     private var canSend: Bool {
         let n = outstanding.count
         if n < 2 { return true }
-        if n >= (congested ? 4 : 16) { return false }
+        if n >= (congested ? 4 : 12) { return false }
         return outstanding.values.reduce(0) { $0 + $1.bytes } < Int(window)
     }
     private var window = 64_000.0             // bytes allowed in flight
@@ -380,12 +380,14 @@ final class Session {
 
     /// encode queue
     private func adjustWindow(acked: Int) {
-        if congested {
+        // Queueing: the round trip is ~50 ms over the link's own. On mobile data that's already
+        // felt, so back off then rather than when it has doubled (which let 16 frames pile up).
+        if srtt > minRtt * 1.3 + 0.05 {
             // At most one cut per round trip: the acks in flight still reflect the old window.
             guard Date().timeIntervalSince(lastCut) > max(srtt, 0.05) else { return }
             window = max(32_000, window * 0.7)
             lastCut = Date()
-        } else if srtt < minRtt * 1.5 + 0.03 {
+        } else if srtt < minRtt * 1.2 + 0.02 {
             window = min(2_000_000, window + Double(acked))
         }
     }
