@@ -105,9 +105,11 @@ final class InputInjector {
         var role: CFTypeRef?
         AXUIElementCopyAttributeValue(el, kAXRoleAttribute as CFString, &role)
         if let r = role as? String, ["AXTextField", "AXTextArea", "AXComboBox", "AXSearchField"].contains(r) { return true }
-        // Web pages' editable areas: a settable text selection.
-        var settable: DarwinBoolean = false
-        return AXUIElementIsAttributeSettable(el, "AXSelectedTextRange" as CFString, &settable) == .success && settable.boolValue
+        // Editable web content (contenteditable: mail, docs, chat boxes): browsers mark everything
+        // inside it with an editable ancestor. (Not "the text selection is settable": browsers say
+        // that of whole pages and of their tab bars, and switching tabs brought up the keyboard.)
+        var editable: CFTypeRef?
+        return AXUIElementCopyAttributeValue(el, "AXEditableAncestor" as CFString, &editable) == .success && editable != nil
     }
 
     // MARK: Pointer
