@@ -91,6 +91,7 @@ export class Screen {
     }
     this.clampZoom();
     this.applyZoom();
+    this.onLayout?.();
   }
 
   // ───── Frames ─────
@@ -154,7 +155,7 @@ export class Screen {
 
   /** A frame is on screen: counters, the pointer (for zoom), the first-frame hook. */
   shown(bytes, t0, cx, cy) {
-    this.cursor = cx === 0xffff ? null : [cx, cy];
+    if (!this.pointerDrawn) this.cursor = cx === 0xffff ? null : [cx, cy]; // else the pointer drawn here (js/cursor.js)
     this.frames++;
     this.bytes += bytes;
     this.decodeMs += performance.now() - t0;

@@ -15,6 +15,7 @@ final class NanoCore {
     let appIcon: NSImage?
     let microphone = Microphone()
     let speakers = MacSpeakers()
+    private let pointerLook = MacPointer() // main thread
 
     private let configLock = NSLock()
     private var _config: NanoConfig
@@ -333,6 +334,7 @@ final class NanoCore {
         pending.removeValue(forKey: ObjectIdentifier(s))
         guard session === s else { return }
         session = nil
+        s.pointerEcho.stop()
         setSink(nil)
         source.stop()
         injector.releaseAll()
@@ -341,6 +343,7 @@ final class NanoCore {
         DispatchQueue.main.async {
             self.setMicrophone(false)
             self.speakers.mute(false)
+            self.pointerLook.stop()
             self.scheduleNanoTeardown()
             self.setAwake(false)
             self.model.connected = false
@@ -388,7 +391,11 @@ final class NanoCore {
             // Tell whoever is at the Mac — but not again for a quick reconnect (fold, network change).
             let recent = s.deviceID.flatMap { lastSeen[$0] }.map { Date().timeIntervalSince($0) < 120 } ?? false
             let who = s.clientName, from = s.peer.viaTailscale ? "through Tailscale" : "from this Mac"
+            s.pointerEcho.start()
             DispatchQueue.main.async {
+                self.pointerLook.start { [weak self, weak s] m in
+                    self?.server.queue.async { s?.send(m) }
+                }
                 self.model.connected = true
                 self.model.clientName = "\(s.clientName) · \(s.peer.description)"
                 if !recent && !self.options.headless {

@@ -119,24 +119,18 @@ final class Session {
     /// Queues are building up (acks take much longer than the link's base latency).
     private var congested: Bool { srtt > minRtt * 2 + 0.08 }
     /// How much may be in flight: fps ≈ frames in flight / round trip, so on a long round trip
-    /// (mobile data, ~100+ ms) a fixed 2–4 frames meant 10–20 fps. Instead the budget is in bytes,
-    /// about what the link delivers in a round trip (its measured rate × its base latency): small
-    /// updates (the pointer, typing) can stream many at once, big redraws still wait their turn,
-    /// and the network's queues don't fill up. Always at least 2 frames; never more than 10.
+    /// (mobile data, ~100 ms) a few frames in flight mean a low frame rate. The budget is a
+    /// congestion window in bytes, delay-based: it grows by what's acknowledged while the round
+    /// trip stays near the link's own latency, and shrinks as soon as queues build up (the round
+    /// trip grows), so the network's buffers don't fill and add lag. Always at least 2 frames.
     private var canSend: Bool {
         let n = outstanding.count
         if n < 2 { return true }
-        if n >= (congested ? 4 : 10) { return false }
-        let inFlight = outstanding.values.reduce(0) { $0 + $1.bytes }
-        let base = max(minRtt == .infinity ? 0.05 : minRtt, 0.03)
-        let budget = max(48_000, Int(rate * base * (congested ? 1 : 2)))
-        return inFlight < budget
+        if n >= (congested ? 4 : 16) { return false }
+        return outstanding.values.reduce(0) { $0 + $1.bytes } < Int(window)
     }
-    // Delivery rate: bytes acknowledged per second, measured over ~0.5 s and kept as a slowly
-    // decaying maximum (when the screen is still, frames are tiny and say nothing about the link).
-    private var rate = 0.0
-    private var ackedBytes = 0
-    private var rateSince = Date()
+    private var window = 64_000.0             // bytes allowed in flight
+    private var lastCut = Date.distantPast
     private var resynced = false              // already resynced during the current silence
     private var lastSendAt = Date.distantPast
     private var frameNo: UInt32 = 0
@@ -185,7 +179,11 @@ final class Session {
         ws.close(code: 4001)
     }
 
+    /// Where the pointer really is, for the pointer the phone draws (see MacPointer).
+    private(set) lazy var pointerEcho = PointerEcho(injector: core.injector) { [weak self] m in self?.send(m) }
+
     func end() {
+        pointerEcho.stop()
         encodeQueue.async {
             self.ended = true
             self.reference = nil
@@ -244,8 +242,12 @@ final class Session {
         if Session.inputTypes.contains(t) { lastInputAt = Date() }
         let inj = core.injector
         switch t {
-        case "m": inj.moveBy(dx: num(m["x"]), dy: num(m["y"]))
-        case "a": inj.moveTo(nx: num(m["x"]), ny: num(m["y"]))
+        case "m":
+            inj.moveBy(dx: num(m["x"]), dy: num(m["y"]))
+            pointerEcho.applied(m["q"])
+        case "a":
+            inj.moveTo(nx: num(m["x"]), ny: num(m["y"]))
+            pointerEcho.applied(m["q"])
         case "b": inj.button(int(m["b"]), down: int(m["d"]) == 1, clicks: int(m["n"], 1), flags: Session.flags(int(m["mod"])))
         case "c": inj.click(int(m["b"]), clicks: int(m["n"], 1), flags: Session.flags(int(m["mod"])))
         case "s": inj.scroll(dx: num(m["x"]), dy: num(m["y"]))
@@ -354,13 +356,7 @@ final class Session {
             if let o = self.outstanding.removeValue(forKey: id) {
                 self.resynced = false
                 self.measure(rtt: Date().timeIntervalSince(o.at))
-                self.ackedBytes += o.bytes
-                let dt = Date().timeIntervalSince(self.rateSince)
-                if dt > 0.5 {
-                    self.rate = max(self.rate * 0.97, Double(self.ackedBytes) / dt)
-                    self.ackedBytes = 0
-                    self.rateSince = Date()
-                }
+                self.adjustWindow(acked: o.bytes)
             }
             self.pump()
         }
@@ -380,6 +376,18 @@ final class Session {
             qualityScale = min(1, qualityScale + 0.05)
         }
         encoder?.setBitrate(videoBitrate)
+    }
+
+    /// encode queue
+    private func adjustWindow(acked: Int) {
+        if congested {
+            // At most one cut per round trip: the acks in flight still reflect the old window.
+            guard Date().timeIntervalSince(lastCut) > max(srtt, 0.05) else { return }
+            window = max(32_000, window * 0.7)
+            lastCut = Date()
+        } else if srtt < minRtt * 1.5 + 0.03 {
+            window = min(2_000_000, window + Double(acked))
+        }
     }
 
     func refresh() {

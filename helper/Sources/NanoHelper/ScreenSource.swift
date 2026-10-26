@@ -223,7 +223,7 @@ final class ScreenSource: NSObject, FrameSource, SCStreamOutput, SCStreamDelegat
         c.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(max(1, fps)))
         c.pixelFormat = kCVPixelFormatType_32BGRA
         c.colorSpaceName = CGColorSpace.sRGB
-        c.showsCursor = true
+        c.showsCursor = false // the phone draws the pointer itself (MacPointer), with no lag
         c.queueDepth = 5
         c.scalesToFit = true
         c.captureResolution = .best

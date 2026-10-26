@@ -11,6 +11,7 @@ import { haptic, addHapticSwitch } from './haptics.js';
 import { showInstall, hideInstall, browserName } from './install.js';
 import { Mic } from './mic.js';
 import { Speaker } from './speaker.js';
+import { MacCursor } from './cursor.js';
 
 const $ = (s) => document.querySelector(s);
 const app = $('#app');
@@ -60,22 +61,32 @@ window.addEventListener('unhandledrejection', (e) => remoteLog('error', [`unhand
 
 // ───── Screen ─────
 const screen = new Screen({ area: $('#screen-area'), wrap: $('#screen-wrap'), canvas: $('#screen'), notch: $('#notch') });
+// The Mac's pointer, drawn here so it moves with no lag (the video doesn't include it).
+const macCursor = new MacCursor(screen, $('#mac-cursor'));
+screen.pointerDrawn = true;
+screen.onLayout = () => macCursor.render();
 
 // ───── Input batching ─────
-// Pointer and scroll deltas are summed and sent ~120×/s; everything else goes out immediately (in order).
+// Pointer and scroll deltas are summed and sent at most ~120×/s; the first after a pause goes out
+// right away (no waiting for the batch). Everything else goes out immediately (in order).
 const acc = { mx: 0, my: 0, sx: 0, sy: 0 };
-let flushTimer = 0;
+let flushTimer = 0, lastFlush = 0, moveSeq = 0;
 const r2 = (v) => Math.round(v * 100) / 100;
 
 function flushSoon() {
-  if (!flushTimer) flushTimer = setTimeout(() => flush(false), 8);
+  if (flushTimer) return;
+  const wait = 8 - (performance.now() - lastFlush);
+  if (wait <= 0) flush(false);
+  else flushTimer = setTimeout(() => flush(false), wait);
 }
 
 function flush(force) {
   clearTimeout(flushTimer);
   flushTimer = 0;
-  if (!force && link.buffered > 64 * 1024) { flushSoon(); return; } // let a backed-up socket drain
-  if (acc.mx || acc.my) { link.send({ t: 'm', x: r2(acc.mx), y: r2(acc.my) }); acc.mx = acc.my = 0; }
+  if (!force && link.buffered > 64 * 1024) { flushTimer = setTimeout(() => flush(false), 8); return; } // let a backed-up socket drain
+  lastFlush = performance.now();
+  // q: which moves the Mac has applied, so the pointer drawn here can be reconciled (js/cursor.js).
+  if (acc.mx || acc.my) { link.send({ t: 'm', x: r2(acc.mx), y: r2(acc.my), q: ++moveSeq }); acc.mx = acc.my = 0; }
   if (acc.sx || acc.sy) { link.send({ t: 's', x: r2(acc.sx), y: r2(acc.sy) }); acc.sx = acc.sy = 0; }
 }
 
@@ -88,8 +99,13 @@ function sendNow(m) {
 // so letting go of it afterwards doesn't latch it.
 const pointer = {
   touched() { keyboard.markUsed(); },
-  move(dx, dy) { acc.mx += dx; acc.my += dy; flushSoon(); },
-  abs(nx, ny) { flush(true); link.send({ t: 'a', x: Math.round(nx * 10000) / 10000, y: Math.round(ny * 10000) / 10000 }); },
+  move(dx, dy) { acc.mx += dx; acc.my += dy; macCursor.moved(dx, dy, moveSeq + 1); flushSoon(); },
+  abs(nx, ny) {
+    flush(true);
+    const x = Math.round(nx * 10000) / 10000, y = Math.round(ny * 10000) / 10000;
+    link.send({ t: 'a', x, y, q: ++moveSeq });
+    macCursor.jumped(x, y, moveSeq);
+  },
   click(b, n) {
     keyboard.markUsed();
     sendNow({ t: 'c', b, n, mod: keyboard.mask() });
@@ -650,7 +666,7 @@ function powerOn() {
   else setOverlay('booting', link.open ? `Starting ${macName()}…` : 'Looking for your Mac…');
 }
 
-screen.onFirstFrame = () => { if (powered) reveal(); };
+screen.onFirstFrame = () => { if (powered) reveal(); macCursor.render(); };
 
 // iOS only lets audio start from a touch *end*; unlock there too.
 app.addEventListener('pointerup', () => {
@@ -1075,6 +1091,12 @@ link = new Link({
         } else if (m.code !== 'idle') {
           showBanner(m.msg, m.level === 'error' ? 'error' : 'info', m.level === 'info' ? 4000 : 0);
         }
+        break;
+      case 'p': // where the Mac's pointer really is
+        macCursor.server(m);
+        break;
+      case 'cursor': // what it looks like
+        macCursor.setShape(m);
         break;
       case 'stats':
         serverStats = m;
