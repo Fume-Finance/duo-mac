@@ -74,31 +74,35 @@ final class InputInjector {
 
     /// Is there somewhere to type at this point of the screen (0…1 coordinates)? An Accessibility
     /// hit test, so the phone can bring up its own keyboard when you tap a text field.
-    func isTextField(nx: Double, ny: Double) -> Bool {
-        if dryRun { return false }
+    /// Also says what was there (its role, for the log).
+    func textField(nx: Double, ny: Double) -> (Bool, String) {
+        if dryRun { return (false, "nothing (dry run)") }
         let b = bounds
-        return isTextField(at: CGPoint(x: b.minX + min(max(nx, 0), 1) * b.width, y: b.minY + min(max(ny, 0), 1) * b.height))
+        return textField(at: CGPoint(x: b.minX + min(max(nx, 0), 1) * b.width, y: b.minY + min(max(ny, 0), 1) * b.height))
     }
 
     /// The same, under the Mac's pointer (a tap on the trackpad clicks there).
-    func isTextFieldUnderPointer() -> Bool {
-        if dryRun { return false }
-        return isTextField(at: pointerLocation())
+    func textFieldUnderPointer() -> (Bool, String) {
+        if dryRun { return (false, "nothing (dry run)") }
+        return textField(at: pointerLocation())
     }
 
-    private func isTextField(at p: CGPoint) -> Bool {
+    private func textField(at p: CGPoint) -> (Bool, String) {
         let sys = AXUIElementCreateSystemWide()
         AXUIElementSetMessagingTimeout(sys, 0.3)
         var hit: AXUIElement?
-        guard AXUIElementCopyElementAtPosition(sys, Float(p.x), Float(p.y), &hit) == .success, var el = hit else { return false }
+        guard AXUIElementCopyElementAtPosition(sys, Float(p.x), Float(p.y), &hit) == .success, var el = hit else { return (false, "nothing") }
+        var role: CFTypeRef?
+        AXUIElementCopyAttributeValue(el, kAXRoleAttribute as CFString, &role)
+        let what = (role as? String) ?? "something"
         for _ in 0..<3 {
-            if InputInjector.isTextLike(el) { return true }
+            if InputInjector.isTextLike(el) { return (true, what) }
             var parent: CFTypeRef?
             guard AXUIElementCopyAttributeValue(el, kAXParentAttribute as CFString, &parent) == .success,
                   let pa = parent, CFGetTypeID(pa) == AXUIElementGetTypeID() else { break }
             el = pa as! AXUIElement
         }
-        return false
+        return (false, what)
     }
 
     private static func isTextLike(_ el: AXUIElement) -> Bool {

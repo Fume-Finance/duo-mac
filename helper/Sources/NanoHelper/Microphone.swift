@@ -230,6 +230,8 @@ final class Microphone {
         let r = received, p = peak, pl = played, st = starved
         received = 0; peak = 0; played = 0; starved = 0
         lock.unlock()
+        // Nothing coming in and nothing listening: nothing worth a line every 5 s.
+        if r == 0 && pl == 0 && !listening { return }
         let db = p > 0 ? Int((20 * log10(p)).rounded()) : -99
         let mic = Microphone.deviceID()
         let listened = mic.map { Microphone.isRunningSomewhere($0) } ?? false

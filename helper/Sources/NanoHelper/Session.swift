@@ -271,7 +271,8 @@ final class Session {
             // Off the network queue: Accessibility can be slow.
             let id = m["id"] ?? 0, x = num(m["x"]), y = num(m["y"]), atPointer = m["x"] == nil
             DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                let text = atPointer ? inj.isTextFieldUnderPointer() : inj.isTextField(nx: x, ny: y)
+                let (text, what) = atPointer ? inj.textFieldUnderPointer() : inj.textField(nx: x, ny: y)
+                Log.info("Tap on \(what): \(text ? "a text field, so the iPhone keyboard" : "not a text field")")
                 self?.send(["t": "hit", "id": id, "text": text])
             }
         case "ack": ack(UInt32(truncatingIfNeeded: int(m["f"])))
