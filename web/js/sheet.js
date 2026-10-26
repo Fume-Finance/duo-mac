@@ -216,7 +216,10 @@ export class Sheet {
     el.addEventListener('input', (e) => {
       const t = e.target, key = t.dataset?.k;
       if (!key) return;
-      if (t.type === 'checkbox') setSetting(key, t.checked);
+      if (t.type === 'checkbox') {
+        setSetting(key, t.checked);
+        if (key === 'sounds') this.update(this.info); // the volume goes with the clicks
+      }
       else if (t.type === 'range') {
         setSetting(key, +t.value);
         const v = el.querySelector(`[data-v="${key}"]`);
@@ -283,7 +286,7 @@ export class Sheet {
 
   <div class="group"><h3>Keyboard</h3><div class="box">
     ${toggle('sounds', 'Key clicks')}
-    ${slider('volume', 'Volume', 0, 1, 0.05, FMT.volume)}
+    ${settings.sounds ? slider('volume', 'Volume', 0, 1, 0.05, FMT.volume) : ''}
     ${toggle('haptics', 'Haptic taps', 'Keys and trackpad taps, felt as you lift your finger')}
     ${toggle('fnStandard', 'Use F1, F2, etc. as standard function keys')}
     <div class="item"><span class="l">iPhone keyboard<small>Dictation, emoji, accents. Or hold the 🌐 fn key.</small></span>

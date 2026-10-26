@@ -35,8 +35,8 @@ enum Quality: String {
 ///
 /// Pipeline: capture thread copies each new frame into `pending`; the encode queue swaps it out,
 /// diffs it against `reference` (what the phone already shows), JPEG-encodes only the changed
-/// tiles and sends them. At most `maxInFlight` frames are unacknowledged, so on a slow network
-/// we skip stale frames instead of building up lag.
+/// tiles and sends them. Unacknowledged frames are capped (`canSend`), so on a slow network we
+/// skip stale frames instead of building up lag.
 final class Session {
     private static var counter = 0
     let id: Int
@@ -101,8 +101,25 @@ final class Session {
     private var lastAdapt = Date()
     /// Queues are building up (acks take much longer than the link's base latency).
     private var congested: Bool { srtt > minRtt * 2 + 0.08 }
-    /// More frames in flight on a slow-but-clear link (fps ≈ frames in flight / round trip).
-    private var maxInFlight: Int { srtt > 0.06 && !congested ? 4 : 2 }
+    /// How much may be in flight: fps ≈ frames in flight / round trip, so on a long round trip
+    /// (mobile data, ~100+ ms) a fixed 2–4 frames meant 10–20 fps. Instead the budget is in bytes,
+    /// about what the link delivers in a round trip (its measured rate × its base latency): small
+    /// updates (the pointer, typing) can stream many at once, big redraws still wait their turn,
+    /// and the network's queues don't fill up. Always at least 2 frames; never more than 10.
+    private var canSend: Bool {
+        let n = outstanding.count
+        if n < 2 { return true }
+        if n >= (congested ? 4 : 10) { return false }
+        let inFlight = outstanding.values.reduce(0) { $0 + $1.bytes }
+        let base = max(minRtt == .infinity ? 0.05 : minRtt, 0.03)
+        let budget = max(48_000, Int(rate * base * (congested ? 1 : 2)))
+        return inFlight < budget
+    }
+    // Delivery rate: bytes acknowledged per second, measured over ~0.5 s and kept as a slowly
+    // decaying maximum (when the screen is still, frames are tiny and say nothing about the link).
+    private var rate = 0.0
+    private var ackedBytes = 0
+    private var rateSince = Date()
     private var resynced = false              // already resynced during the current silence
     private var lastSendAt = Date.distantPast
     private var frameNo: UInt32 = 0
@@ -304,6 +321,13 @@ final class Session {
             if let o = self.outstanding.removeValue(forKey: id) {
                 self.resynced = false
                 self.measure(rtt: Date().timeIntervalSince(o.at))
+                self.ackedBytes += o.bytes
+                let dt = Date().timeIntervalSince(self.rateSince)
+                if dt > 0.5 {
+                    self.rate = max(self.rate * 0.97, Double(self.ackedBytes) / dt)
+                    self.ackedBytes = 0
+                    self.rateSince = Date()
+                }
             }
             self.pump()
         }
@@ -334,7 +358,7 @@ final class Session {
     /// encode queue
     private func pump() {
         guard !ended else { return }
-        if outstanding.count >= maxInFlight {
+        if !canSend {
             // No acks for a while (lost message, busy phone): resync once, then wait for an ack
             // before trying again so a sleeping phone doesn't get buried in frames.
             // (On a slow link a frame can legitimately take a while: don't resend a big full frame too soon.)
