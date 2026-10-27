@@ -247,6 +247,13 @@ const sheet = new Sheet($('#sheet'), {
   resetZoom: () => screen.resetZoom(),
   refresh: () => link.send({ t: 'refresh' }),
   reconnect: () => { fatal = null; link.reconnectNow(); },
+  // Local mode's one-time setup: the profile that makes this iPhone trust the Mac on the local
+  // network. iOS installs profiles from Safari only (not from a Home Screen app).
+  localSetup: () => {
+    const url = `https://${location.host}/duo-mac-local.mobileconfig`;
+    if (navigator.standalone) location.href = `x-safari-${url}`;
+    else location.href = url;
+  },
   endSession: () => {
     sheet.close();
     keyboard.releaseAll();
@@ -284,6 +291,7 @@ function sheetInfo() {
     mac: cfg?.mac, display: cfg?.display, test: cfg?.test,
     displays: cfg?.displays, displayIndex: cfg?.displayIndex, nanoActive: !!cfg?.nano,
     layout: cfg?.keyboard?.layout, connected: link.open, rtt: link.rtt, device, micInstalled: cfg?.mic?.installed, micUpdate: cfg?.mic?.update, micOn: mic.running,
+    route: link.open ? link.route : '', localReady: !!link.local,
   };
 }
 
@@ -1048,6 +1056,10 @@ link = new Link({
         break;
       case 'config':
         cfg = m;
+        if (m.local?.hosts) {
+          link.setLocal(m.local);
+          try { localStorage.setItem(LOCAL_KEY, JSON.stringify(m.local)); } catch {}
+        }
         screen.setDisplay(m.display);
         keyboard.setLayout({ iso: m.keyboard?.iso, labels: m.keyboard?.labels });
         layout();
@@ -1325,7 +1337,13 @@ layout();
 requestAnimationFrame(layout);
 
 setOverlay('booting', 'Looking for your Mac…');
+// Local mode: where the Mac was on the local network last time (it says so in each config).
+const LOCAL_KEY = 'nano.local.v1';
+try { link.setLocal(JSON.parse(localStorage.getItem(LOCAL_KEY) || 'null')); } catch {}
 link.connect();
+// A copy of the app on this iPhone, so it opens even when Tailscale can't be reached (offline,
+// abroad): it then finds the Mac on the same Wi-Fi or hotspot (sw.js).
+if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
 
 // ───── Self-test (?autotest=1): drives the UI with synthetic touches ─────
 if (params.has('autotest')) {

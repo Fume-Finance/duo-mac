@@ -264,6 +264,7 @@ export class Sheet {
     const conn = i.connected
       ? `Connected to ${esc(mac.name || 'your Mac')}${i.rtt ? ` · ${Math.round(i.rtt)} ms` : ''}`
       : 'Not connected';
+    const route = { local: 'Directly, on the same network', tailscale: 'Through Tailscale' }[i.route] || '';
     this.el.innerHTML = `
 <div class="panel">
   <header><h2>Settings</h2><button type="button" class="x" data-act="close" aria-label="Close settings"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button></header>
@@ -343,8 +344,12 @@ export class Sheet {
   </div></div>` : ''}
 
   <div class="group"><h3>Connection</h3><div class="box">
-    <div class="item"><span class="l">${conn}<small class="mono">${esc(location.host)}</small></span>
+    <div class="item"><span class="l">${conn}<small>${route ? `${route} · ` : ''}<span class="mono">${esc(location.host)}</span></small></span>
       <button type="button" class="btn blue" data-act="reconnect">Reconnect</button></div>
+    ${i.localReady ? `<div class="item"><span class="l">Same Wi-Fi or hotspot<small>${i.route === 'local'
+      ? 'Connected straight to the Mac: fastest, and works without internet.'
+      : 'Connects straight to the Mac when you’re on the same network (or its on your hotspot), once this iPhone trusts it. One-time setup: install the profile, then Settings › General › About › Certificate Trust Settings › turn on Duo Mac.'}</small></span>
+      <button type="button" class="btn" data-act="localSetup">Set up…</button></div>` : ''}
     <div class="item"><span class="l">End session<small>Disconnects and gives the Mac its normal screen back right away.</small></span>
       <button type="button" class="btn" data-act="endSession">End</button></div>
   </div></div>

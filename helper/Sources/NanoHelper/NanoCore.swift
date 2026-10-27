@@ -15,6 +15,7 @@ final class NanoCore {
     let appIcon: NSImage?
     let microphone = Microphone()
     let speakers = MacSpeakers()
+    let sameNetwork: LocalMode // local mode (same Wi-Fi or hotspot); `localMode` below is the testing setup
     private let pointerLook = MacPointer() // main thread
 
     private let configLock = NSLock()
@@ -67,6 +68,7 @@ final class NanoCore {
         injector = InputInjector(dryRun: options.dryRun || options.testPattern, bounds: src.info.bounds)
         keymap = Keymap.current()
         server = HTTPServer(port: options.port ?? _config.port, localhostOnly: !options.lan, webRoot: webRoot)
+        sameNetwork = LocalMode(port: (options.port ?? _config.port) + 2, configDir: store.dir)
         (src as? TestPatternSource)?.injector = injector
         installKeymap(keymap)
         source.onFrame = { [weak self] pb in self?.deliver(pb) }
@@ -89,6 +91,14 @@ final class NanoCore {
             DispatchQueue.main.async { self?.model.serverError = ok ? nil : err }
         }
         server.start()
+        // Local mode: the same connection straight over the Wi-Fi or hotspot (LocalMode).
+        sameNetwork.onWebSocket = { [weak self] ws, headers in self?.attach(ws, headers: headers) }
+        if options.testPattern { sameNetwork.origin = "http://localhost:\(port)" }
+        server.dynamicFile = { [weak self] path in
+            guard path == "/duo-mac-local.mobileconfig", let p = self?.sameNetwork.profile() else { return nil }
+            return (p, "application/x-apple-aspen-config")
+        }
+        sameNetwork.start()
         microphone.guardDefaultInput()
         Log.info("Serving the web app from \(webRoot.path)")
         if injector.dryRun { Log.info("Dry run: input is logged, not sent to macOS") }
@@ -390,7 +400,7 @@ final class NanoCore {
             }
             // Tell whoever is at the Mac — but not again for a quick reconnect (fold, network change).
             let recent = s.deviceID.flatMap { lastSeen[$0] }.map { Date().timeIntervalSince($0) < 120 } ?? false
-            let who = s.clientName, from = s.peer.viaTailscale ? "through Tailscale" : "from this Mac"
+            let who = s.clientName, from = s.peer.local ? "on the same network" : s.peer.viaTailscale ? "through Tailscale" : "from this Mac"
             s.pointerEcho.start()
             DispatchQueue.main.async {
                 self.pointerLook.start { [weak self, weak s] m in
@@ -710,6 +720,8 @@ final class NanoCore {
             "dryRun": injector.dryRun,
             "perms": ["screen": screenOK, "input": inputOK],
             "mic": ["installed": Microphone.isInstalled, "update": Microphone.needsUpdate],
+            "local": sameNetwork.info ?? [:],
+            "route": s.peer.local ? "local" : s.peer.viaTailscale ? "tailscale" : "direct",
         ]
     }
 
@@ -727,6 +739,7 @@ final class NanoCore {
 
     /// main thread
     func refreshModel() {
+        if !options.testPattern { sameNetwork.origin = tsStatus.dnsName.map { "https://\($0)" } }
         let url = pairingURL()
         if url != model.url || (url != nil && model.qr == nil) {
             model.url = url ?? ""
@@ -744,6 +757,7 @@ final class NanoCore {
         model.keyboardLayout = keymap.layoutName + (keymap.iso ? " · ISO" : "")
         model.micInstalled = Microphone.isInstalled
         model.micNeedsUpdate = Microphone.needsUpdate
+        model.localAddress = (sameNetwork.info?["hosts"] as? [String])?.joined(separator: " · ") ?? ""
         refreshPermissions()
     }
 

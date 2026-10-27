@@ -382,6 +382,21 @@ struct GeneralPage: View {
                 }
             }
             Section {
+                HStack(spacing: 12) {
+                    IconTile(symbol: "wifi", tint: .blue, size: 28)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Same Wi-Fi or hotspot")
+                        Text(model.localAddress.isEmpty
+                             ? "Starting…"
+                             : "When your iPhone is on the same network (or this Mac is on its hotspot), it connects straight here: fastest, and works without internet. Set up once on the iPhone: Duo Mac settings › Connection › Set up…")
+                            .font(.caption).foregroundStyle(.secondary)
+                        if !model.localAddress.isEmpty {
+                            Text(model.localAddress).font(.caption.monospaced()).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+            Section {
                 LabeledContent("Keyboard layout", value: model.keyboardLayout)
                 LabeledContent("Address") {
                     Text(model.tailscale.dnsName ?? "—").textSelection(.enabled).foregroundStyle(.secondary)

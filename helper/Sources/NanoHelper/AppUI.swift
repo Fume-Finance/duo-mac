@@ -43,6 +43,7 @@ final class AppModel: ObservableObject {
     @Published var micInstalled = false
     @Published var micActive = false
     @Published var micNeedsUpdate = false
+    @Published var localAddress = ""          // local mode: e.g. "MacBook-Pro-3.local · 192.168.1.13"
 }
 
 /// Things the window's buttons do.

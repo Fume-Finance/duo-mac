@@ -5,20 +5,30 @@ import CryptoKit
 /// Minimal HTTP/1.1 server: serves the web app as static files and upgrades `/ws` to a WebSocket.
 /// One port for everything, so the phone only needs a single URL. It listens on this Mac only:
 /// phones reach it through Tailscale Serve (HTTPS), which forwards to 127.0.0.1.
+///
+/// With `tls`, it's local mode's entrance instead (LocalMode): HTTPS on the local network, only
+/// the WebSocket, only from private addresses, only for Duo Mac's own page (`allowedOrigin`).
 final class HTTPServer {
     let queue = DispatchQueue(label: "nano.net", qos: .userInteractive)
     let port: UInt16
     let localhostOnly: Bool
     let webRoot: URL
+    let tls: sec_identity_t?
+    let allowedOrigin: (() -> String?)?
+    var isLocalEntrance: Bool { tls != nil }
     private var listener: NWListener?
 
     var onWebSocket: ((WebSocketConnection, [String: String]) -> Void)?
     var onState: ((Bool, String?) -> Void)?
+    /// Generated files (path → body and type), served before the web app's own (main thread safe).
+    var dynamicFile: ((String) -> (Data, String)?)?
 
-    init(port: UInt16, localhostOnly: Bool, webRoot: URL) {
+    init(port: UInt16, localhostOnly: Bool, webRoot: URL, tls: sec_identity_t? = nil, allowedOrigin: (() -> String?)? = nil) {
         self.port = port
         self.localhostOnly = localhostOnly
         self.webRoot = webRoot.standardizedFileURL
+        self.tls = tls
+        self.allowedOrigin = allowedOrigin
     }
 
     func start() {
@@ -29,7 +39,14 @@ final class HTTPServer {
             tcp.keepaliveIdle = 10
             tcp.keepaliveInterval = 5
             tcp.keepaliveCount = 3
-            let params = NWParameters(tls: nil, tcp: tcp)
+            var tlsOptions: NWProtocolTLS.Options?
+            if let tls {
+                let o = NWProtocolTLS.Options()
+                sec_protocol_options_set_local_identity(o.securityProtocolOptions, tls)
+                sec_protocol_options_set_min_tls_protocol_version(o.securityProtocolOptions, .TLSv12)
+                tlsOptions = o
+            }
+            let params = NWParameters(tls: tlsOptions, tcp: tcp)
             params.allowLocalEndpointReuse = true
             guard let nwPort = NWEndpoint.Port(rawValue: port) else { return }
             let l: NWListener
@@ -43,7 +60,7 @@ final class HTTPServer {
                 guard let self else { return }
                 switch state {
                 case .ready:
-                    Log.info("Listening on port \(self.port)\(self.localhostOnly ? " (this Mac only)" : "")")
+                    if !self.isLocalEntrance { Log.info("Listening on port \(self.port)\(self.localhostOnly ? " (this Mac only)" : "")") }
                     self.onState?(true, nil)
                 case .failed(let e):
                     Log.warn("Cannot listen on port \(self.port): \(e)")
@@ -54,6 +71,12 @@ final class HTTPServer {
             }
             l.newConnectionHandler = { [weak self] c in
                 guard let self else { return }
+                // The local entrance answers the local network only (Wi-Fi, hotspot), never the internet.
+                if self.isLocalEntrance, case .hostPort(let host, _) = c.endpoint,
+                   !LocalMode.isOnLocalNetwork("\(host)") {
+                    c.cancel()
+                    return
+                }
                 HTTPConnection(conn: c, server: self).start()
             }
             l.start(queue: queue)
@@ -129,6 +152,12 @@ private final class HTTPConnection {
             respond(200, "ok")
         default:
             guard method == "GET" || method == "HEAD" else { return respond(405, "Method Not Allowed") }
+            if server.isLocalEntrance { return respond(404, "Not Found") } // the page itself comes through Tailscale (or the phone's copy)
+            if let (body, type) = server.dynamicFile?(path) {
+                let header = "HTTP/1.1 200 OK\r\nContent-Type: \(type)\r\nContent-Length: \(body.count)\r\n"
+                    + "Cache-Control: no-store\r\n\(HTTPConnection.securityHeaders)Connection: close\r\n\r\n"
+                return finish(Data(header.utf8) + (method == "HEAD" ? Data() : body))
+            }
             serveFile(path: path, headOnly: method == "HEAD")
         }
     }
@@ -165,8 +194,22 @@ private final class HTTPConnection {
         guard headers["upgrade"]?.lowercased() == "websocket", let key = headers["sec-websocket-key"] else {
             return respond(400, "Expected a WebSocket upgrade")
         }
-        // Only our own page may open the socket (not some other site the phone's browser has open).
-        if let origin = headers["origin"], let o = URLComponents(string: origin), let oh = o.host?.lowercased() {
+        var headers = headers
+        headers["x-duo-local"] = nil // only this server says that
+        if server.isLocalEntrance {
+            // Only Duo Mac's own page, at its Tailscale address (or the phone's saved copy of it).
+            guard let origin = headers["origin"], let allowed = server.allowedOrigin?(), origin.lowercased() == allowed.lowercased(),
+                  let host = URLComponents(string: allowed)?.host else {
+                Log.warn("Local mode: refused a connection from a page at \(headers["origin"] ?? "nowhere")")
+                return respond(403, "Forbidden")
+            }
+            // The page's address is what passkeys are bound to; the caller is on the local network.
+            headers["x-forwarded-for"] = nil
+            headers["tailscale-user-login"] = nil
+            headers["x-forwarded-host"] = host
+            headers["x-duo-local"] = "1"
+        } else if let origin = headers["origin"], let o = URLComponents(string: origin), let oh = o.host?.lowercased() {
+            // Only our own page may open the socket (not some other site the phone's browser has open).
             let originHost = oh + (o.port.map { ":\($0)" } ?? "")
             let hosts = [headers["host"], headers["x-forwarded-host"]].compactMap { $0?.lowercased() }
             guard hosts.contains(originHost) else {

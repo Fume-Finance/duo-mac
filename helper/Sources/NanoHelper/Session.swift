@@ -204,6 +204,7 @@ final class Session {
 
     private static let authTypes: Set<String> = ["auth", "auth-passkey", "auth-pin", "pair", "passkey-begin",
                                                  "passkey-register", "pin-set", "pair-finish", "lock", "forget"]
+    private static let pairingTypes: Set<String> = ["pair", "passkey-begin", "passkey-register", "pin-set", "pair-finish"]
     private static let inputTypes: Set<String> = ["m", "a", "b", "c", "s", "z", "k", "txt", "aux", "act"]
 
     /// Binary messages: "M" + 16-bit 24 kHz audio from the phone's microphone.
@@ -229,6 +230,9 @@ final class Session {
             let msg = (m["msg"] as? String ?? "").prefix(800)
             return Log.info("📱 \(m["level"] as? String ?? "log"): \(msg)")
         case _ where Session.authTypes.contains(t):
+            // On the local network (anyone on a shared Wi-Fi can reach it), paired iPhones may unlock,
+            // but nobody can start pairing: that's only through Tailscale.
+            if peer.local && Session.pairingTypes.contains(t) { return }
             return core.auth.handle(t, m, from: self)
         case "prefs":
             if isAuthed { core.auth.savePrefs(m["v"], for: clientName) }

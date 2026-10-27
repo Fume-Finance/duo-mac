@@ -79,10 +79,12 @@ struct PeerInfo {
     let user: String?     // Tailscale account, when it came through Tailscale
     let host: String      // the host name the page was opened at (no port)
     let viaTailscale: Bool
+    let local: Bool       // through local mode's entrance (same Wi-Fi or hotspot)
 
     init(headers: [String: String], socketRemote: String) {
         let fwd = headers["x-forwarded-for"]?.split(separator: ",").first.map { $0.trimmingCharacters(in: .whitespaces) }
         viaTailscale = fwd != nil
+        local = headers["x-duo-local"] == "1"
         address = fwd ?? socketRemote
         user = headers["tailscale-user-login"].flatMap { $0.isEmpty ? nil : $0 }
         host = PeerInfo.stripPort(headers["x-forwarded-host"] ?? headers["host"] ?? "localhost")
@@ -95,7 +97,7 @@ struct PeerInfo {
         return host.contains(".") && !isIPv4 && !host.contains(":") ? host : nil
     }
 
-    var description: String { user.map { "\(address) (\($0))" } ?? address }
+    var description: String { local ? "\(address) (same network)" : user.map { "\(address) (\($0))" } ?? address }
 
     static func stripPort(_ h: String) -> String {
         if h.hasPrefix("[") { return String(h.dropFirst().prefix { $0 != "]" }) }
