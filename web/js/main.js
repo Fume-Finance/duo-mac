@@ -26,6 +26,9 @@ let device = loadDevice();   // this iPhone's key for the Mac, once paired
 let pairCode = (params.get('pair') || '').replace(/[^0-9a-z]/gi, '').toUpperCase();
 let ticket = '';             // from the last unlock: reconnecting soon after skips passkey
 let authed = false;          // unlocked: may say hello and control the Mac
+const LOCAL_OK_KEY = 'nano.localOK.v1';
+let localTrusted = false;    // has connected on the local route: local mode is set up
+try { localTrusted = localStorage.getItem(LOCAL_OK_KEY) === '1'; } catch {}
 let need = null;             // the Mac's challenge, while locked
 let pairing = null;          // pairing in progress: { passkey }
 let passkeyOpts = null;      // while pairing: what passkey needs to make the passkey
@@ -291,7 +294,7 @@ function sheetInfo() {
     mac: cfg?.mac, display: cfg?.display, test: cfg?.test,
     displays: cfg?.displays, displayIndex: cfg?.displayIndex, nanoActive: !!cfg?.nano,
     layout: cfg?.keyboard?.layout, connected: link.open, rtt: link.rtt, device, micInstalled: cfg?.mic?.installed, micUpdate: cfg?.mic?.update, micOn: mic.running,
-    route: link.open ? link.route : '', localReady: !!link.local,
+    route: link.open ? link.route : '', localReady: !!link.local, localTrusted,
   };
 }
 
@@ -960,6 +963,12 @@ link = new Link({
     app.classList.toggle('connecting', state === 'connecting');
     app.classList.toggle('live', state === 'open');
     if (state === 'open') {
+      // A local connection means this iPhone trusts the Mac's certificate: local mode is set up.
+      if (link.route === 'local' && !localTrusted) {
+        localTrusted = true;
+        try { localStorage.setItem(LOCAL_OK_KEY, '1'); } catch {}
+      }
+      if (sheet.isOpen) sheet.update(sheetInfo());
       failures = 0;
       everConnected = true;
       hideBanner();
