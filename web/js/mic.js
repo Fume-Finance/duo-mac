@@ -1,9 +1,12 @@
 // The iPhone's microphone, streamed to the Mac (where it becomes the "Duo Mac Microphone").
 // Mono, 16-bit, 24 kHz, in ~20 ms binary messages: "M" + samples. It records only while a Mac app is
 // listening, so start() usually comes from the Mac, not a tap. iOS only lets a page start audio from a
-// tap, so unlock() makes the audio context in one and keeps it (suspended) for later.
+// tap, so unlock() starts the audio context in one. It's the page's one audio context (js/sound.js),
+// shared with the key clicks and the Mac's sound: on iOS a second context stops getting audio as soon
+// as the first one plays (the Mac's sound started, e.g. dictation's chime, and the microphone went silent).
 
 import { settings } from './settings.js';
+import { sound } from './sound.js';
 
 const RATE = 24000;
 const CHUNK = 480; // 20 ms
@@ -19,12 +22,14 @@ export class Mic {
     this.pos = 0;
     this.out = new Int16Array(CHUNK);
     this.n = 0;
+    this.chunks = 0; // sent since start()
   }
 
   /** Ask for the microphone and start streaming. Resolves to true when it's running. */
   start() {
     if (this.running) return Promise.resolve(true);
     if (this.starting) return this.starting;
+    this.chunks = 0;
     this.starting = this.open().then(() => {
       this.running = true;
       return true;
@@ -38,15 +43,12 @@ export class Mic {
 
   /** From a tap: the audio context, allowed to start later without one. */
   unlock() {
-    if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)();
-    if (this.ctx.state !== 'running' && !this.running && !this.starting) {
-      this.ctx.resume().then(() => { if (!this.running && !this.starting) this.ctx?.suspend(); }, () => {});
-    }
+    this.ctx = sound.context();
   }
 
   async open() {
-    if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)();
-    this.ctx.resume().catch(() => {});
+    this.ctx = sound.context();
+    if (!this.ctx) throw new Error('no audio');
     // Recording and playing at once (the Mac's sound may be playing: js/speaker.js).
     if (navigator.audioSession) navigator.audioSession.type = 'play-and-record';
     // No timeout here: the first time, iOS waits for the person to answer its permission prompt.
@@ -85,6 +87,7 @@ export class Mic {
         msg[0] = 0x4D; // 'M'
         msg.set(new Uint8Array(this.out.buffer), 1);
         this.send(msg.buffer);
+        this.chunks++;
         this.n = 0;
       }
       this.pos += step;
@@ -97,11 +100,17 @@ export class Mic {
     this.close();
   }
 
-  /** Lets go of the microphone (iOS's orange dot goes away); the context stays, suspended. */
+  /** What the microphone is doing, for the log when no audio comes out of it. */
+  describe() {
+    const t = this.stream?.getAudioTracks()[0];
+    return `audio ${this.ctx?.state ?? 'none'}, track ${t ? `${t.readyState}${t.muted ? ' muted' : ''}${t.enabled ? '' : ' disabled'}` : 'none'}, ` +
+      `session ${navigator.audioSession?.type ?? 'n/a'}, ${this.chunks} chunks`;
+  }
+
+  /** Lets go of the microphone (iOS's orange dot goes away); the shared context keeps running. */
   close() {
     try { this.src?.disconnect(); this.node?.disconnect(); } catch {}
     this.stream?.getTracks().forEach((t) => t.stop());
-    this.ctx?.suspend().catch(() => {});
     this.node = this.src = this.stream = null;
     if (navigator.audioSession?.type === 'play-and-record') navigator.audioSession.type = settings.macSound ? 'playback' : 'auto';
     this.n = 0;

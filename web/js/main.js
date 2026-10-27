@@ -1189,7 +1189,16 @@ async function record() {
   remoteLog('info', ['mic: a Mac app is listening, recording']);
   if (await mic.start()) {
     if (!micWanted) mic.stop(); // it stopped listening meanwhile
-    else remoteLog('info', [`mic: recording at ${mic.ctx?.sampleRate} Hz`]);
+    else {
+      remoteLog('info', [`mic: recording at ${mic.ctx?.sampleRate} Hz (${mic.describe()})`]);
+      // No audio coming out: say why, and give the audio a nudge (iOS can leave it interrupted).
+      setTimeout(() => {
+        if (!mic.running || mic.chunks) return;
+        remoteLog('warn', [`mic: no audio yet (${mic.describe()})`]);
+        mic.ctx?.resume().catch(() => {});
+        setTimeout(() => { if (mic.running) remoteLog('info', [`mic: after a nudge, ${mic.describe()}`]); }, 2000);
+      }, 1500);
+    }
     return;
   }
   remoteLog('warn', [`mic: couldn't start: ${mic.error}`]);
