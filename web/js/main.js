@@ -954,6 +954,7 @@ function onAuthed(m) {
 
 // ───── Connection ─────
 let helloTimer = 0;
+let lastProbe = '';
 link = new Link({
   onState(state, code) {
     app.classList.toggle('connecting', state === 'connecting');
@@ -994,6 +995,14 @@ link = new Link({
       if (screen.gotFrame && overlay.className === 'hidden') showBanner('Reconnecting…');
       else setOverlay('booting', 'Looking for your Mac…', failures > 2 ? 'Is Duo Mac open on the Mac, and Tailscale on on this iPhone?' : '');
     }
+  },
+  /** Moving a Tailscale session to the local route signs in with the reconnect ticket. */
+  authMessage() {
+    return authed && device && ticket ? { t: 'auth', dev: device.dev, tok: device.tok, ticket } : null;
+  },
+  onProbe(what) {
+    if (what !== lastProbe) remoteLog('info', [`local route: ${what}`]);
+    lastProbe = what;
   },
   onOpen() {
     // A fresh connection: earlier problems (permission, capture stopped) are re-reported by the Mac if still there.
@@ -1058,7 +1067,7 @@ link = new Link({
         cfg = m;
         if (m.local?.hosts) {
           link.setLocal(m.local);
-          try { localStorage.setItem(LOCAL_KEY, JSON.stringify(m.local)); } catch {}
+          try { localStorage.setItem(LOCAL_KEY, JSON.stringify(link.local)); } catch {}
         }
         screen.setDisplay(m.display);
         keyboard.setLayout({ iso: m.keyboard?.iso, labels: m.keyboard?.labels });

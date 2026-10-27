@@ -14,6 +14,9 @@ export class Link {
     this.local = null;     // local mode: { port, hosts }
     this.attempts = null;  // a connection race in progress
     this.route = '';       // 'local' or 'tailscale', once open
+    this.probing = false;  // trying to move a Tailscale session to the local route
+    this.probeTimer = 0;
+    this.lastProbe = -Infinity;
   }
 
   get open() { return !!this.ws && this.ws.readyState === 1; }
@@ -24,9 +27,18 @@ export class Link {
     return `${proto}://${location.host}/ws`;
   }
 
-  /** Local mode: the Mac on the same Wi-Fi or hotspot ({ port, hosts }), tried alongside Tailscale. */
+  /** Local mode: the Mac on the same Wi-Fi or hotspot ({ port, hosts }), tried alongside Tailscale.
+   *  Addresses the Mac had on its other networks are kept too (home, the hotspot…), newest first,
+   *  so the first connection there is already direct. Old names are dropped: the Mac was renamed. */
   setLocal(info) {
-    this.local = info && info.port && info.hosts?.length ? info : null;
+    if (!info?.port || !info.hosts?.length) return;
+    const isName = (h) => /[a-z]/i.test(h) && !h.includes(':');
+    const hosts = [...new Set([...info.hosts, ...(this.local?.hosts || [])])]
+      .filter((h) => !isName(h) || info.hosts.includes(h))
+      .slice(0, 5);
+    this.local = { port: info.port, hosts };
+    // On Tailscale, and the Mac just said where it is: see if it's right here.
+    if (this.open && this.route === 'tailscale') setTimeout(() => this.tryLocal(), 500);
   }
 
   /** Every connection races the routes: the Mac's local address(es) and the usual one (Tailscale).
@@ -39,7 +51,7 @@ export class Link {
     this.kicked = false;
     const targets = [];
     if (this.local) {
-      for (const h of this.local.hosts.slice(0, 3)) targets.push({ url: `wss://${h.includes(':') ? `[${h}]` : h}:${this.local.port}/ws`, local: true });
+      for (const h of this.local.hosts) targets.push({ url: this.localURL(h), local: true });
     }
     targets.push({ url: this.url(), local: false });
     const attempts = [];
@@ -98,10 +110,76 @@ export class Link {
     }, 4000);
   }
 
+  localURL(h) {
+    return `wss://${h.includes(':') ? `[${h}]` : h}:${this.local.port}/ws`;
+  }
+
+  /** On Tailscale while the Mac may be right here (it just told us its local addresses, then every
+   *  30 s): quietly try the local route and, if the Mac answers and the reconnect ticket gets us in,
+   *  move over. The Mac hands the session to the new connection when it says hello, so it's a
+   *  blink, not a reconnect. */
+  tryLocal() {
+    if (!this.open || this.route !== 'tailscale' || !this.local || this.probing) return;
+    if (performance.now() - this.lastProbe < 5000) return;
+    const auth = this.h.authMessage?.();
+    if (!auth) return;
+    this.probing = true;
+    this.lastProbe = performance.now();
+    const socks = [];
+    let picked = null, done = false, timer = 0;
+    const finish = (win, early, why) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      this.probing = false;
+      for (const s of socks) {
+        if (s === win) continue;
+        s.onmessage = s.onclose = null;
+        try { s.close(); } catch {}
+      }
+      if (!win) return this.h.onProbe?.(why);
+      if (!this.open || this.route !== 'tailscale') { try { win.close(); } catch {} return; }
+      const old = this.ws;
+      old.onmessage = old.onclose = null;
+      this.adopt(win, true, early);
+      this.h.onProbe?.('moved to the local route');
+      // The Mac closes the old connection when the new one says hello; in case it doesn't:
+      setTimeout(() => { try { old.close(); } catch {} }, 3000);
+    };
+    for (const h of this.local.hosts) {
+      let ws;
+      try { ws = new WebSocket(this.localURL(h)); } catch { continue; }
+      ws.binaryType = 'arraybuffer';
+      socks.push(ws);
+      ws.onmessage = (ev) => {
+        if (typeof ev.data !== 'string') return;
+        let m;
+        try { m = JSON.parse(ev.data); } catch { return; }
+        if (m.t === 'welcome' && !picked) {
+          // The first address to answer is the one: drop the others, sign in with the ticket.
+          picked = ws;
+          for (const s of socks) if (s !== ws) { s.onmessage = s.onclose = null; try { s.close(); } catch {} }
+          ws.send(JSON.stringify(auth));
+        } else if (ws === picked) {
+          if (m.t === 'authed') finish(ws, [ev]);
+          else finish(null, null, `the Mac answered but wants ${m.t}`);
+        }
+      };
+      ws.onclose = () => {
+        if (ws === picked || socks.every((s) => s.readyState > 1)) finish(null, null, ws === picked ? 'closed while signing in' : 'no answer');
+      };
+      ws.onerror = () => {};
+    }
+    if (!socks.length) return finish(null, null, 'no addresses');
+    timer = setTimeout(() => finish(null, null, picked ? 'signing in timed out' : 'no answer'), 5000);
+  }
+
   /** The route that won: from now on this is the link. */
   adopt(ws, local, early = []) {
     this.ws = ws;
     this.route = local ? 'local' : 'tailscale';
+    clearInterval(this.probeTimer);
+    if (!local) this.probeTimer = setInterval(() => this.tryLocal(), 30000);
     ws.onmessage = (ev) => {
       if (this.ws !== ws) return;
       this.lastRx = performance.now();
@@ -149,6 +227,7 @@ export class Link {
 
   close() {
     clearTimeout(this.retryTimer);
+    clearInterval(this.probeTimer);
     this.stopPing();
     for (const o of this.attempts || []) { o.ws.onopen = o.ws.onclose = null; try { o.ws.close(); } catch {} }
     this.attempts = null;
