@@ -104,7 +104,15 @@ final class Session {
     private var lastPB: CVPixelBuffer?        // the picture the phone has (or is getting)
     private var encoding = false              // a frame is in the encoder
     private var needKey = true                // next frame must be a key frame
+    private var redo = false                  // the encoder skipped the last picture: encode it again
     private var sharpenLeft = 0               // re-encodes of a still picture, so it sharpens
+    // Through a Tailscale relay: big changes go out coarse, then one sharp frame (see pumpVideo).
+    private var relayed = false
+    private var soft = false                  // coarse frames went out since the last sharp one
+    private var sharpDue = false              // the change stopped: the next encode is the sharp frame
+    private var sharpGeneration = 0
+    private var coarseRun = (frames: 0, bytes: 0)
+    private static let relayLog = LogBudget(perMinute: 6)
 
     // encode queue
     private let encodeQueue = DispatchQueue(label: "nano.encode", qos: .userInteractive)
@@ -115,10 +123,16 @@ final class Session {
     // Adapting to the network (mobile data, Tailscale relays): round trip measured from frame acks.
     private var srtt = 0.0                    // smoothed round trip, seconds
     private var minRtt = Double.infinity      // the link's own latency, without queueing
+    private var recentRtts: [(at: Date, rtt: Double)] = []  // relayed: ordinary frames, the last half second
     private var qualityScale = 1.0            // JPEG quality is lowered while the link is congested
     private var lastAdapt = Date()
+    private var congestedFor = 0              // adaptation steps in a row
+    /// The round trip queues are judged by. Through a relay, one late ack (it stalls now and then)
+    /// or a big frame's own transfer time says nothing about queues: there it's the lowest recent
+    /// round trip of an ordinary frame, so only a queue that stays counts.
+    private var queueRtt: Double { relayed ? recentRtts.map(\.rtt).min() ?? srtt : srtt }
     /// Queues are building up (acks take much longer than the link's base latency).
-    private var congested: Bool { srtt > minRtt * 2 + 0.08 }
+    private var congested: Bool { queueRtt > minRtt * 2 + 0.08 }
     /// How much may be in flight: fps ≈ frames in flight / round trip, so on a long round trip
     /// (mobile data, ~100 ms) a few frames in flight mean a low frame rate. The budget is a
     /// congestion window in bytes, delay-based: it grows by what's acknowledged while the round
@@ -365,7 +379,7 @@ final class Session {
         encodeQueue.async {
             if let o = self.outstanding.removeValue(forKey: id) {
                 self.resynced = false
-                self.measure(rtt: Date().timeIntervalSince(o.at))
+                self.measure(rtt: Date().timeIntervalSince(o.at), bytes: o.bytes)
                 self.adjustWindow(acked: o.bytes)
             }
             self.pump()
@@ -373,17 +387,25 @@ final class Session {
     }
 
     /// encode queue
-    private func measure(rtt: Double) {
+    private func measure(rtt: Double, bytes: Int) {
         srtt = srtt == 0 ? rtt : srtt * 0.8 + rtt * 0.2
         // Slowly forget the minimum, so a network change (Wi-Fi → 5G) is picked up.
         minRtt = min(minRtt == .infinity ? rtt : minRtt * 1.002, rtt)
         let now = Date()
+        if relayed && bytes < 32_000 {
+            recentRtts.append((now, rtt))
+            // The last half second, but at least 4 (after a still moment there are few).
+            while recentRtts.count > 4 && now.timeIntervalSince(recentRtts[0].at) > 0.5 { recentRtts.removeFirst() }
+        }
         guard now.timeIntervalSince(lastAdapt) > 0.4 else { return }
         lastAdapt = now
         if congested {
-            qualityScale = max(0.45, qualityScale * 0.85)
-        } else if srtt < minRtt * 1.5 + 0.04 {
-            qualityScale = min(1, qualityScale + 0.05)
+            congestedFor += 1
+            // Through a relay only once it lasts: its stalls pass by themselves.
+            if !relayed || congestedFor >= 2 { qualityScale = max(0.45, qualityScale * 0.85) }
+        } else {
+            congestedFor = 0
+            if queueRtt < minRtt * 1.5 + 0.04 { qualityScale = min(1, qualityScale + (relayed ? 0.1 : 0.05)) }
         }
         encoder?.setBitrate(videoBitrate)
     }
@@ -392,13 +414,21 @@ final class Session {
     private func adjustWindow(acked: Int) {
         // Queueing: the round trip is ~50 ms over the link's own. On mobile data that's already
         // felt, so back off then rather than when it has doubled (which let 16 frames pile up).
-        if srtt > minRtt * 1.3 + 0.05 {
+        if queueRtt > minRtt * 1.3 + 0.05 {
             // At most one cut per round trip: the acks in flight still reflect the old window.
             guard Date().timeIntervalSince(lastCut) > max(srtt, 0.05) else { return }
             window = max(32_000, window * 0.7)
             lastCut = Date()
-        } else if srtt < minRtt * 1.2 + 0.02 {
+        } else if queueRtt < minRtt * 1.2 + 0.02 {
             window = min(2_000_000, window + Double(acked))
+        }
+    }
+
+    /// The Tailscale path is relayed (or went direct): see pumpVideo and queueRtt.
+    func setRelayed(_ on: Bool) {
+        encodeQueue.async {
+            self.relayed = on
+            if !on { self.recentRtts.removeAll() }
         }
     }
 
@@ -587,16 +617,76 @@ final class Session {
         let fresh = hasPending ? pendingPB : nil
         if fresh != nil { pendingPB = nil; hasPending = false }
         pendingLock.unlock()
-        // Nothing new, but the phone needs a key frame (a refresh, a decoder error): the last picture.
-        guard let pb = fresh ?? (needKey ? lastPB : nil) else { return }
+        // The sharp frame waits while the link is queued up (unless nothing is in flight any more).
+        let sharp = sharpDue && (outstanding.isEmpty || !congested)
+        // Nothing new, but the phone needs a key frame (a refresh, a decoder error), the sharp frame
+        // or the picture the encoder skipped: the last picture.
+        guard let pb = fresh ?? (needKey || sharp || redo ? lastPB : nil) else { return }
+        redo = false
+        // Through a relay a big change (switching screens, scrolling, a video) goes out coarse: about
+        // a third of the data, so it arrives sooner and the motion keeps flowing. 0.2 s after the
+        // last one, one sharp frame. The rest of the time (typing, a moving wallpaper) as usual,
+        // but no finer than text needs.
+        let big = relayed && fresh != nil && lastPB.map { Session.changedShare(pb, $0) > 0.05 } ?? false
         lastPB = pb
-        encodeVideo(pb)
-        sharpenLeft = 2
+        let detail = big ? .coarse : sharp ? .sharp : usualDetail
+        encodeVideo(pb, detail: detail)
+        if big {
+            soft = true
+            sharpDue = false
+            scheduleSharp()
+        } else if sharp {
+            soft = false
+            sharpDue = false
+        }
+        sharpenLeft = detail == usualDetail ? 2 : 0
         scheduleRefine()
     }
 
+    /// Through a relay, no finer than text needs (see H264Encoder.Detail).
+    private var usualDetail: H264Encoder.Detail { relayed ? .enough : .normal }
+
     /// encode queue
-    private func encodeVideo(_ pb: CVPixelBuffer) {
+    private func scheduleSharp() {
+        sharpGeneration += 1
+        let gen = sharpGeneration
+        encodeQueue.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            guard let self, gen == self.sharpGeneration, !self.ended, self.soft else { return }
+            self.sharpDue = true
+            self.pump()
+        }
+    }
+
+    /// Share of the picture that changed a lot (sampled every 8 pixels, green channel): high when
+    /// switching screens (60–90 %), sliding between Spaces or scrolling (5–40 %), about 0 when typing
+    /// or under a slowly moving wallpaper.
+    private static func changedShare(_ a: CVPixelBuffer, _ b: CVPixelBuffer) -> Double {
+        guard a !== b, CVPixelBufferGetPixelFormatType(a) == kCVPixelFormatType_32BGRA,
+              CVPixelBufferGetPixelFormatType(b) == kCVPixelFormatType_32BGRA else { return 0 }
+        let w = CVPixelBufferGetWidth(a), h = CVPixelBufferGetHeight(a)
+        guard w == CVPixelBufferGetWidth(b), h == CVPixelBufferGetHeight(b) else { return 1 }
+        CVPixelBufferLockBaseAddress(a, .readOnly)
+        CVPixelBufferLockBaseAddress(b, .readOnly)
+        defer {
+            CVPixelBufferUnlockBaseAddress(a, .readOnly)
+            CVPixelBufferUnlockBaseAddress(b, .readOnly)
+        }
+        guard let pa = CVPixelBufferGetBaseAddress(a)?.assumingMemoryBound(to: UInt8.self),
+              let pb = CVPixelBufferGetBaseAddress(b)?.assumingMemoryBound(to: UInt8.self) else { return 0 }
+        let ra = CVPixelBufferGetBytesPerRow(a), rb = CVPixelBufferGetBytesPerRow(b)
+        var changed = 0, total = 0
+        for y in stride(from: 4, to: h, by: 8) {
+            let rowA = pa + y * ra + 1, rowB = pb + y * rb + 1
+            for x in stride(from: 16, to: w * 4, by: 32) {
+                if abs(Int(rowA[x]) - Int(rowB[x])) > 24 { changed += 1 }
+                total += 1
+            }
+        }
+        return total > 0 ? Double(changed) / Double(total) : 0
+    }
+
+    /// encode queue
+    private func encodeVideo(_ pb: CVPixelBuffer, detail: H264Encoder.Detail) {
         let w = CVPixelBufferGetWidth(pb), h = CVPixelBufferGetHeight(pb)
         if encoder == nil || encoder!.width != w || encoder!.height != h {
             encoder?.invalidate()
@@ -608,14 +698,42 @@ final class Session {
         needKey = false
         encoding = true
         let t0 = Date()
-        encoder!.encode(pb, key: key) { [weak self] out in
+        encoder!.encode(pb, key: key, detail: detail) { [weak self] result in
             guard let self else { return }
             self.encodeQueue.async {
                 self.encoding = false
                 self.statEncode += Date().timeIntervalSince(t0)
-                if let out, !self.ended { self.sendVideo(out, w, h) } else { self.needKey = true }
+                switch result {
+                case .frame(let out) where !self.ended:
+                    self.sendVideo(out, w, h)
+                    self.noteDetail(detail, bytes: out.data.count)
+                case .skipped:
+                    // Dropped by the rate control: the phone's pictures still follow on. Encode that
+                    // picture again, unless the sharp frame (tried again) will show it anyway.
+                    if key { self.needKey = true }
+                    if detail == .sharp { self.soft = true; self.sharpDue = true } else if detail != .coarse { self.redo = true }
+                default:
+                    self.needKey = true
+                }
                 self.pump()
             }
+        }
+    }
+
+    /// encode queue: what a change cost through the relay, for the log (a few lines a minute).
+    private func noteDetail(_ detail: H264Encoder.Detail, bytes: Int) {
+        switch detail {
+        case .coarse:
+            coarseRun.frames += 1
+            coarseRun.bytes += bytes
+        case .sharp:
+            let run = coarseRun
+            coarseRun = (0, 0)
+            Session.relayLog.log {
+                Log.info("Relayed: a big change went out as \(run.frames) coarse frame(s), \(run.bytes / 1024) KB, then a sharp one, \(bytes / 1024) KB")
+            }
+        case .normal, .enough:
+            break
         }
     }
 
@@ -631,7 +749,7 @@ final class Session {
             return
         }
         sharpenLeft -= 1
-        encodeVideo(pb)
+        encodeVideo(pb, detail: usualDetail)
         if sharpenLeft > 0 { scheduleRefine(after: 0.25) }
     }
 

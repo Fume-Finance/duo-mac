@@ -12,6 +12,7 @@ struct Options {
     var snapshotUI: String? = nil
     var configDir: String? = nil
     var autoApprove = false
+    var relayed = false
 
     static func parse(_ args: [String]) -> Options {
         var o = Options()
@@ -34,6 +35,7 @@ struct Options {
             case "--snapshot-ui": o.snapshotUI = next()
             case "--config-dir": o.configDir = next()
             case "--auto-approve": o.autoApprove = true
+            case "--relayed": o.relayed = true
             case "--help", "-h":
                 print(usage)
                 exit(0)
@@ -42,8 +44,8 @@ struct Options {
             }
             i += 1
         }
-        // Approving pairings without asking is for automated tests of the test pattern only.
-        if !o.testPattern { o.autoApprove = false }
+        // Approving pairings without asking and faking a relay are for automated tests of the test pattern only.
+        if !o.testPattern { o.autoApprove = false; o.relayed = false }
         return o
     }
 
@@ -55,6 +57,7 @@ struct Options {
       --web DIR         serve the web app from DIR
       --test-pattern    stream a synthetic test screen instead of the real one (http://localhost)
       --auto-approve    with --test-pattern: allow pairing requests without asking (tests)
+      --relayed         with --test-pattern: stream as if through a Tailscale relay (tests)
       --dry-run         log input events instead of sending them to macOS
       --display N       capture display N (0 = main display)
       --config-dir DIR  keep settings and paired devices in DIR instead of Application Support

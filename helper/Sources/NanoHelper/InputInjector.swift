@@ -25,6 +25,7 @@ final class InputInjector {
     private var typed = ""
     private var events: [String] = []
     private var lastClick: (CGPoint, Date)?
+    private var space = (now: 0, before: 0, at: Date.distantPast)
     private var lastScrollLog = Date.distantPast
 
     static let arrowKeys: Set<UInt16> = [0x7B, 0x7C, 0x7D, 0x7E]
@@ -43,11 +44,13 @@ final class InputInjector {
         var typed: String
         var events: [String]
         var lastClick: (CGPoint, Date)?
+        /// The test pattern's Space (0 or 1), the one before and when it changed.
+        var space: (now: Int, before: Int, at: Date)
     }
 
     func snapshot() -> Snapshot {
         lock.lock(); defer { lock.unlock() }
-        return Snapshot(cursor: cursor, typed: typed, events: events, lastClick: lastClick)
+        return Snapshot(cursor: cursor, typed: typed, events: events, lastClick: lastClick, space: space)
     }
 
     /// Current pointer position in global points.
@@ -327,6 +330,11 @@ final class InputInjector {
     func action(_ name: String) {
         lock.lock()
         record("action \(name)")
+        // The test pattern has two Spaces to slide between, like the real ones.
+        if dryRun, name == "spaceLeft" || name == "spaceRight" {
+            let next = name == "spaceRight" ? 1 : 0
+            if next != space.now { space = (next, space.now, Date()) }
+        }
         lock.unlock()
         switch name {
         case "missionControl":

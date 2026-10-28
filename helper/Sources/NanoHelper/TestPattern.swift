@@ -27,6 +27,7 @@ final class TestPatternSource: FrameSource {
     private var width = 0, height = 0
     private var pool: CVPixelBufferPool?
     private var background: CGImage?
+    private var page: CGImage?            // the second Space
     private let start = Date()
     private let space = CGColorSpace(name: CGColorSpace.sRGB)!
 
@@ -41,6 +42,7 @@ final class TestPatternSource: FrameSource {
         queue.sync {
             self.info = next
             self.background = nil
+            self.page = nil
         }
     }
 
@@ -81,6 +83,7 @@ final class TestPatternSource: FrameSource {
         pool = nil
         CVPixelBufferPoolCreate(nil, nil, attrs as CFDictionary, &pool)
         background = nil
+        page = nil
     }
 
     private func tick() {
@@ -102,14 +105,34 @@ final class TestPatternSource: FrameSource {
 
     private func draw(_ ctx: CGContext) {
         if background == nil { background = makeBackground() }
-        if let bg = background {
-            ctx.draw(bg, in: CGRect(x: 0, y: 0, width: width, height: height))
+        let snap = injector?.snapshot()
+        // Two Spaces (the phone's Space left / right): this card and a page of text. A switch slides
+        // from one to the other in 0.45 s, like macOS: a big change, for testing slow links.
+        let sp = snap?.space ?? (0, 0, .distantPast)
+        let p = min(1, Date().timeIntervalSince(sp.at) / 0.45)
+        let full = CGRect(x: 0, y: 0, width: width, height: height)
+        func image(_ i: Int) -> CGImage? {
+            if i == 0 { return background }
+            if page == nil { page = makePage() }
+            return page
+        }
+        if p < 1 {
+            let e = p < 0.5 ? 2 * p * p : 1 - pow(-2 * p + 2, 2) / 2
+            let dir: CGFloat = sp.now > sp.before ? -1 : 1
+            if let a = image(sp.before) { ctx.draw(a, in: full.offsetBy(dx: CGFloat(e) * CGFloat(width) * dir, dy: 0)) }
+            if let b = image(sp.now) { ctx.draw(b, in: full.offsetBy(dx: CGFloat(e - 1) * CGFloat(width) * dir, dy: 0)) }
+        } else if let img = image(sp.now) {
+            ctx.draw(img, in: full)
         }
         ctx.saveGState()
         ctx.translateBy(x: 0, y: CGFloat(height))
         ctx.scaleBy(x: CGFloat(width) / info.bounds.width, y: -CGFloat(height) / info.bounds.height)
+        defer { ctx.restoreGState() }
+        guard sp.now == 0 && p == 1 else {
+            if let c = snap?.cursor { drawArrow(ctx, at: c) }
+            return
+        }
 
-        let snap = injector?.snapshot()
         let t = Date().timeIntervalSince(start)
 
         // Menu bar clock (changes once a second → small update)
@@ -150,7 +173,28 @@ final class TestPatternSource: FrameSource {
 
         // Pointer
         if let c = snap?.cursor { drawArrow(ctx, at: c) }
-        ctx.restoreGState()
+    }
+
+    /// The second Space: a still page of dense text.
+    private func makePage() -> CGImage? {
+        guard let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: space,
+                                  bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
+        else { return nil }
+        ctx.translateBy(x: 0, y: CGFloat(height))
+        ctx.scaleBy(x: CGFloat(width) / info.bounds.width, y: -CGFloat(height) / info.bounds.height)
+        let W = info.bounds.width, H = info.bounds.height
+        ctx.setFillColor(CGColor(gray: 0.97, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: W, height: H))
+        text(ctx, "Space 2", x: 60, y: 92, size: 44, weight: .bold, color: CGColor(gray: 0.1, alpha: 1))
+        let words = "the screen changes a lot when you switch spaces so the frame is big and through a relay it takes a while to arrive unless it goes out coarse first and sharp once it stops moving".split(separator: " ")
+        var y = 140.0, n = 0
+        while y < H - 16 {
+            let line = (0..<30).map { (i: Int) -> Substring in words[(n * 7 + i * 5 + i * i) % words.count] }.joined(separator: " ")
+            text(ctx, line, x: 60, y: y, size: 15, weight: .regular, color: CGColor(gray: 0.15, alpha: 1))
+            y += 22
+            n += 1
+        }
+        return ctx.makeImage()
     }
 
     private func makeBackground() -> CGImage? {

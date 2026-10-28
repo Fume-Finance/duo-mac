@@ -17,9 +17,34 @@ final class H264Encoder {
         let config: (codec: String, avcC: Data)?
     }
 
+    enum Result {
+        case frame(Output)
+        case skipped   // the rate control dropped it (it may after a forced sharp frame): nothing to send
+        case failed
+    }
+
+    /// How much detail a frame may have, as limits on its QP (lower = finer). Measured on screens of
+    /// text, for slow links (a Tailscale relay):
+    enum Detail {
+        /// The rate control decides.
+        case normal
+        /// QP 26 or more: as sharp as text needs. Without it the rate control keeps refining a
+        /// picture that's already sharp whenever something small moves (the wallpaper): 440 KB in
+        /// the second after a switch instead of 110 KB.
+        case enough
+        /// QP 38 or more: a big change becomes about a third of the data (37 KB instead of 111 KB
+        /// for a switch to another app), so it arrives sooner, a bit soft.
+        case coarse
+        /// QP 26–27: one frame that brings a coarse picture back to full detail. Left to the rate
+        /// control, it would spend nothing on a still picture for a while after big frames, so
+        /// it would stay soft.
+        case sharp
+    }
+
     let width: Int, height: Int
     private var session: VTCompressionSession?
     private var frames: Int64 = 0
+    private var detail = Detail.normal
     private(set) var bitrate: Int
 
     init?(width: Int, height: Int, bitrate: Int) {
@@ -66,20 +91,34 @@ final class H264Encoder {
         VTSessionSetProperty(s, key: kVTCompressionPropertyKey_AverageBitRate, value: bps as CFNumber)
     }
 
-    /// Encodes one frame; `done` runs on the encoder's thread with the result (nil if it failed).
-    func encode(_ pb: CVPixelBuffer, key: Bool, done: @escaping (Output?) -> Void) {
-        guard let s = session else { return done(nil) }
+    /// Encodes one frame; `done` runs on the encoder's thread with the result.
+    func encode(_ pb: CVPixelBuffer, key: Bool, detail: Detail, done: @escaping (Result) -> Void) {
+        guard let s = session else { return done(.failed) }
+        if detail != self.detail {
+            self.detail = detail
+            // QP limits; 0 and 51 = none (not -1, the unset default: setting that back upsets the
+            // rate control). The one being lifted goes first, so they never conflict.
+            let minQP = switch detail {
+            case .normal: 0
+            case .enough, .sharp: 26
+            case .coarse: 38
+            }
+            let limits = [(kVTCompressionPropertyKey_MinAllowedFrameQP, minQP),
+                          (kVTCompressionPropertyKey_MaxAllowedFrameQP, detail == .sharp ? 27 : 51)]
+            for (k, v) in detail == .coarse ? limits.reversed() : limits { VTSessionSetProperty(s, key: k, value: v as CFNumber) }
+        }
         frames += 1
         let pts = CMTime(value: frames, timescale: 60)
         let props = key ? [kVTEncodeFrameOptionKey_ForceKeyFrame: true] as CFDictionary : nil
         let status = VTCompressionSessionEncodeFrame(s, imageBuffer: pb, presentationTimeStamp: pts, duration: .invalid,
-                                                     frameProperties: props, infoFlagsOut: nil) { status, _, sb in
-            guard status == noErr, let sb else { return done(nil) }
-            done(H264Encoder.output(sb))
+                                                     frameProperties: props, infoFlagsOut: nil) { status, flags, sb in
+            if status == noErr && (sb == nil || flags.contains(.frameDropped)) { return done(.skipped) }
+            guard status == noErr, let sb, let out = H264Encoder.output(sb) else { return done(.failed) }
+            done(.frame(out))
         }
         if status != noErr {
             Log.warn("H.264: encode failed (\(status))")
-            done(nil)
+            done(.failed)
         }
     }
 

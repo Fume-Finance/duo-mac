@@ -391,6 +391,7 @@ final class NanoCore {
             Log.info("📱 \(s.clientName) connected from \(s.peer.description)")
             // Ask a moment later: the peer-to-peer path may still be setting up.
             if s.peer.viaTailscale { watchPath(of: s, after: 4) }
+            if options.relayed { s.setRelayed(true) }
             // Tell whoever is at the Mac — but not again for a quick reconnect (fold, network change).
             let recent = s.deviceID.flatMap { lastSeen[$0] }.map { Date().timeIntervalSince($0) < 120 } ?? false
             let who = s.clientName, from = s.peer.local ? "on the same network" : s.peer.viaTailscale ? "through Tailscale" : "from this Mac"
@@ -510,6 +511,7 @@ final class NanoCore {
                 if let p, p != last {
                     Log.info("Network path to \(s.clientName): \(p.description)")
                     s.send(p.json)
+                    s.setRelayed(!p.direct)
                 }
                 self.watchPath(of: s, after: 20, last: p ?? last)
             }
