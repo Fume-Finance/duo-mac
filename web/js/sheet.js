@@ -3,6 +3,9 @@ import { settings, setSetting } from './settings.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
+// Tailscale's relay regions near here, by the code the Mac reports.
+const RELAYS = { fra: 'Frankfurt', ams: 'Amsterdam', par: 'Paris', lhr: 'London', mad: 'Madrid', waw: 'Warsaw', nue: 'Nuremberg', hel: 'Helsinki' };
+
 function toggle(key, label, note = '') {
   return `<div class="item"><label for="s-${key}">${label}${note ? `<small>${note}</small>` : ''}</label>
     <input type="checkbox" switch id="s-${key}" data-k="${key}" ${settings[key] ? 'checked' : ''}></div>`;
@@ -264,7 +267,11 @@ export class Sheet {
     const conn = i.connected
       ? `Connected to ${esc(mac.name || 'your Mac')}${i.rtt ? ` · ${Math.round(i.rtt)} ms` : ''}`
       : 'Not connected';
-    const route = { local: 'Directly, on the same network', tailscale: 'Through Tailscale' }[i.route] || '';
+    // Through Tailscale: peer to peer, or bounced off one of its relays (slower).
+    const relayed = i.route === 'tailscale' && i.path && !i.path.direct;
+    const via = !i.path ? '' : i.path.direct ? `, peer to peer (${i.path.ipv6 ? 'IPv6' : 'IPv4'})`
+      : `, relayed via ${RELAYS[i.path.relay] || i.path.relay.toUpperCase() || 'its servers'}`;
+    const route = { local: 'Directly, on the same network', tailscale: `Through Tailscale${via}` }[i.route] || '';
     // Local mode: in use now, set up (it has connected this way before), or still to set up.
     const local = i.route === 'local'
       ? { note: 'Straight to the Mac: the fastest way, and it works without internet.', state: '<span class="state on">In use</span>' }
@@ -352,7 +359,7 @@ export class Sheet {
 
   <div class="group"><h3>Connection</h3><div class="box">
     <div class="item"><span class="l">${conn}<small>${route ? `${route} · ` : ''}<span class="mono">${esc(location.host)}</span></small></span>
-      ${i.connected ? `<span class="state ${i.route === 'local' ? 'on' : 'via'}">${i.route === 'local' ? 'Direct' : 'Tailscale'}</span>`
+      ${i.connected ? `<span class="state ${i.route === 'local' ? 'on' : relayed ? 'slow' : 'via'}">${i.route === 'local' ? 'Direct' : relayed ? 'Relayed' : 'Tailscale'}</span>`
         : '<button type="button" class="btn blue" data-act="reconnect">Reconnect</button>'}</div>
     ${i.localReady ? `<div class="item"><span class="l">Same Wi-Fi or hotspot<small>${local.note}</small></span>
       ${local.state}</div>` : ''}

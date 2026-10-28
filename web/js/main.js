@@ -29,7 +29,8 @@ let authed = false;          // unlocked: may say hello and control the Mac
 const LOCAL_OK_KEY = 'nano.localOK.v1';
 let localTrusted = false;    // has connected on the local route: local mode is set up
 try { localTrusted = localStorage.getItem(LOCAL_OK_KEY) === '1'; } catch {}
-let need = null;             // the Mac's challenge, while locked
+let tsPath = null;           // through Tailscale: { direct, ipv6, relay }, from the Mac
+let need = null;            // the Mac's challenge, while locked
 let pairing = null;          // pairing in progress: { passkey }
 let passkeyOpts = null;      // while pairing: what passkey needs to make the passkey
 let macLabel = '';
@@ -295,6 +296,7 @@ function sheetInfo() {
     displays: cfg?.displays, displayIndex: cfg?.displayIndex, nanoActive: !!cfg?.nano,
     layout: cfg?.keyboard?.layout, connected: link.open, rtt: link.rtt, device, micInstalled: cfg?.mic?.installed, micUpdate: cfg?.mic?.update, micOn: mic.running,
     route: link.open ? link.route : '', localReady: !!link.local, localTrusted,
+    path: link.open && link.route === 'tailscale' ? tsPath : null,
   };
 }
 
@@ -963,6 +965,7 @@ link = new Link({
     app.classList.toggle('connecting', state === 'connecting');
     app.classList.toggle('live', state === 'open');
     if (state === 'open') {
+      tsPath = null; // a new connection: the Mac tells us again
       // A local connection means this iPhone trusts the Mac's certificate: local mode is set up.
       if (link.route === 'local' && !localTrusted) {
         localTrusted = true;
@@ -1085,6 +1088,10 @@ link = new Link({
         if (m.perms && !m.perms.input) showBanner('Keyboard and trackpad are off: allow Accessibility for Duo Mac on the Mac.', 'error');
         if (powered && !screen.gotFrame && !fatal) setOverlay('booting', `Starting ${macName()}…`);
         if (!powered && !fatal) setOverlay('off', 'Tap to power on', offSub());
+        break;
+      case 'path':
+        tsPath = { direct: !!m.direct, ipv6: !!m.ipv6, relay: m.relay || '' };
+        if (sheet.isOpen) sheet.update(sheetInfo());
         break;
       case 'perms':
         if (m.input) hideBanner();

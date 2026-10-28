@@ -389,15 +389,8 @@ final class NanoCore {
             }
             session = s
             Log.info("📱 \(s.clientName) connected from \(s.peer.description)")
-            if s.peer.viaTailscale {
-                // Ask a moment later: the peer-to-peer path may still be setting up.
-                server.queue.asyncAfter(deadline: .now() + 4) { [weak self, weak s] in
-                    guard let self, let s, self.session === s else { return }
-                    self.tailscale.path(to: s.peer.address, replyQueue: self.server.queue) { p in
-                        if let p { Log.info("Network path to \(s.clientName): \(p)") }
-                    }
-                }
-            }
+            // Ask a moment later: the peer-to-peer path may still be setting up.
+            if s.peer.viaTailscale { watchPath(of: s, after: 4) }
             // Tell whoever is at the Mac — but not again for a quick reconnect (fold, network change).
             let recent = s.deviceID.flatMap { lastSeen[$0] }.map { Date().timeIntervalSince($0) < 120 } ?? false
             let who = s.clientName, from = s.peer.local ? "on the same network" : s.peer.viaTailscale ? "through Tailscale" : "from this Mac"
@@ -504,6 +497,23 @@ final class NanoCore {
             self.server.queue.async { self.reportCaptureError(err, to: s) }
         }
         DispatchQueue.main.async { self.setAwake(self.config.keepAwake) }
+    }
+
+    /// Whether Tailscale carries the session peer to peer or through a relay can change while it runs
+    /// (it often starts relayed and goes direct a few seconds later): checked every 20 s, and each change
+    /// is logged and shown on the phone.
+    private func watchPath(of s: Session, after delay: TimeInterval, last: Tailscale.Path? = nil) {
+        server.queue.asyncAfter(deadline: .now() + delay) { [weak self, weak s] in
+            guard let self, let s, self.session === s else { return }
+            self.tailscale.path(to: s.peer.address, replyQueue: self.server.queue) { [weak self, weak s] p in
+                guard let self, let s, self.session === s else { return }
+                if let p, p != last {
+                    Log.info("Network path to \(s.clientName): \(p.description)")
+                    s.send(p.json)
+                }
+                self.watchPath(of: s, after: 20, last: p ?? last)
+            }
+        }
     }
 
     /// Wakes the Mac's screens if they're asleep and waits (up to 3 s) until they're on.

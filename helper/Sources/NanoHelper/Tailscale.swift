@@ -206,19 +206,30 @@ final class Tailscale {
         }
     }
 
-    /// How traffic to `ip` flows: "direct" (peer to peer) or "relayed via fra" (slower, Tailscale's DERP relay).
-    func path(to ip: String, replyQueue: DispatchQueue, done: @escaping (String?) -> Void) {
+    /// How traffic to a peer flows: peer to peer, or through one of Tailscale's relays (DERP, slower).
+    struct Path: Equatable {
+        let direct: Bool
+        let ipv6: Bool       // direct, over IPv6
+        let relay: String    // the relay's region ("fra"), when relayed
+
+        var description: String {
+            direct ? "direct (\(ipv6 ? "IPv6" : "IPv4"))" : "relayed via \(relay.isEmpty ? "Tailscale" : relay) (slower)"
+        }
+        var json: [String: Any] { ["t": "path", "direct": direct, "ipv6": ipv6, "relay": relay] }
+    }
+
+    func path(to ip: String, replyQueue: DispatchQueue, done: @escaping (Path?) -> Void) {
         queue.async {
-            var desc: String?
+            var path: Path?
             if let r = Tailscale.run(["status", "--json"], timeout: 5), !r.timedOut,
                let json = try? JSONSerialization.jsonObject(with: Data(r.text.utf8)) as? [String: Any],
                let peers = json["Peer"] as? [String: Any] {
                 for case let p as [String: Any] in peers.values where (p["TailscaleIPs"] as? [String] ?? []).contains(ip) {
-                    let cur = p["CurAddr"] as? String ?? "", relay = p["Relay"] as? String ?? ""
-                    desc = cur.isEmpty ? "relayed via \(relay.isEmpty ? "Tailscale" : relay) (slower)" : "direct"
+                    let cur = p["CurAddr"] as? String ?? ""
+                    path = Path(direct: !cur.isEmpty, ipv6: cur.hasPrefix("["), relay: p["Relay"] as? String ?? "")
                 }
             }
-            replyQueue.async { done(desc) }
+            replyQueue.async { done(path) }
         }
     }
 
