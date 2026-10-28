@@ -270,7 +270,7 @@ export class Sheet {
     // Through Tailscale: peer to peer, or bounced off one of its relays (slower).
     const relayed = i.route === 'tailscale' && i.path && !i.path.direct;
     const via = !i.path ? '' : i.path.direct ? `, peer to peer (${i.path.ipv6 ? 'IPv6' : 'IPv4'})`
-      : `, relayed via ${RELAYS[i.path.relay] || i.path.relay.toUpperCase() || 'its servers'}`;
+      : `, relayed via ${RELAYS[i.path.relay] || esc(i.path.relay.toUpperCase()) || 'its servers'}`;
     const route = { local: 'Directly, on the same network', tailscale: `Through Tailscale${via}` }[i.route] || '';
     // Local mode: in use now, set up (it has connected this way before), or still to set up.
     const local = i.route === 'local'

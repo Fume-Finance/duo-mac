@@ -24,6 +24,9 @@ final class LocalMode {
     let port: UInt16
     private let dir: URL
     private let queue = DispatchQueue(label: "nano.local")
+    /// The main server's queue: connections from here are sessions like any other and must be handled
+    /// there too (sign-in state, the session in control).
+    private let netQueue: DispatchQueue
     private var server: HTTPServer?
     private var monitor: NWPathMonitor?
     private var addresses: [String] = []
@@ -32,8 +35,9 @@ final class LocalMode {
     private var _hosts: [String] = []
     var onWebSocket: ((WebSocketConnection, [String: String]) -> Void)?
 
-    init(port: UInt16, configDir: URL) {
+    init(port: UInt16, configDir: URL, netQueue: DispatchQueue) {
         self.port = port
+        self.netQueue = netQueue
         dir = configDir.appendingPathComponent("local", isDirectory: true)
     }
 
@@ -76,7 +80,7 @@ final class LocalMode {
         server = nil
         guard let identity = issue(name: LocalMode.hostName, ips: now) else { return }
         let s = HTTPServer(port: port, localhostOnly: false, webRoot: URL(fileURLWithPath: "/nonexistent"),
-                           tls: identity, allowedOrigin: { [weak self] in self?.origin })
+                           tls: identity, allowedOrigin: { [weak self] in self?.origin }, queue: netQueue)
         s.onWebSocket = { [weak self] ws, headers in self?.onWebSocket?(ws, headers) }
         s.start()
         server = s

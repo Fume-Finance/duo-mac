@@ -46,6 +46,30 @@ enum Log {
     }
 }
 
+/// At most a few lines a minute of one kind: refused connections and strangers' messages can come in
+/// floods, and each would otherwise cost a line (connections.log never rotates). Use from one queue.
+final class LogBudget {
+    private let perMinute: Int
+    private var windowStart = Date.distantPast
+    private var used = 0
+    private var skipped = 0
+
+    init(perMinute: Int) { self.perMinute = perMinute }
+
+    func log(_ write: () -> Void) {
+        let now = Date()
+        if now.timeIntervalSince(windowStart) >= 60 {
+            if skipped > 0 { Log.info("(\(skipped) more lines like that left out)") }
+            windowStart = now
+            used = 0
+            skipped = 0
+        }
+        guard used < perMinute else { skipped += 1; return }
+        used += 1
+        write()
+    }
+}
+
 enum NanoError: Error, LocalizedError {
     case noDisplay
 

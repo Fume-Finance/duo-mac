@@ -239,12 +239,14 @@ final class AuthManager {
     private var tickets: [String: Ticket] = [:]   // SHA-256 (hex) of the ticket → ticket
     private var pendingPair: PairRequest?
     private var pinChecking = Set<String>()       // device IDs with a PIN check running
+    private let refusals = LogBudget(perMinute: 10) // strangers knocking: not a line each
 
     init(core: NanoCore, dir: URL) {
         self.core = core
         store = DeviceStore(dir: dir)
         log = ConnectionLog(dir: core.options.configDir != nil ? dir : nil)
         prefsFile = dir.appendingPathComponent("prefs.json")
+        chmod(prefsFile.path, 0o600) // made readable by everyone before; only this Mac account now
     }
 
     // MARK: Phone settings backup
@@ -263,9 +265,11 @@ final class AuthManager {
         guard let prefs = prefs as? [String: Any], prefs.count < 64 else { return }
         var all = allPrefs()
         all[name] = prefs
-        if let d = try? JSONSerialization.data(withJSONObject: all, options: [.prettyPrinted, .sortedKeys]) {
-            try? d.write(to: prefsFile, options: .atomic)
-        }
+        // (A number JSON can't hold would raise an exception `try?` doesn't catch: see WebSocket.send.)
+        guard JSONSerialization.isValidJSONObject(all),
+              let d = try? JSONSerialization.data(withJSONObject: all, options: [.prettyPrinted, .sortedKeys]) else { return }
+        try? d.write(to: prefsFile, options: .atomic)
+        chmod(prefsFile.path, 0o600)
     }
 
     static func hash(_ s: String) -> String { Data(SHA256.hash(data: Data(s.utf8))).hex }
@@ -294,7 +298,7 @@ final class AuthManager {
         guard core.config.allowConnections else { return refuse(s) }
         guard let id = m["dev"] as? String, let tok = m["tok"] as? String, let d = store.device(id),
               Crypto.equal(Array(AuthManager.hash(tok).utf8), Array(d.tokenHash.utf8)) else {
-            log.add("Refused an unknown device from \(s.peer.description)")
+            refusals.log { log.add("Refused an unknown device from \(s.peer.description)") }
             s.send(["t": "auth-fail", "reason": "unknown-device"])
             return
         }
@@ -407,7 +411,7 @@ final class AuthManager {
         guard core.config.allowConnections else { return refuse(s) }
         let code = (m["code"] as? String ?? "").uppercased().filter { $0.isLetter || $0.isNumber }
         guard Crypto.equal(Array(code.utf8), Array(core.config.pairCode.utf8)) else {
-            log.add("Refused a pairing request with an old or wrong code from \(s.peer.description)")
+            refusals.log { log.add("Refused a pairing request with an old or wrong code from \(s.peer.description)") }
             s.send(["t": "pair-fail", "reason": "bad-code"])
             return
         }

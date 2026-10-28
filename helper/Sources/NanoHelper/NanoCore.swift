@@ -68,7 +68,7 @@ final class NanoCore {
         injector = InputInjector(dryRun: options.dryRun || options.testPattern, bounds: src.info.bounds)
         keymap = Keymap.current()
         server = HTTPServer(port: options.port ?? _config.port, localhostOnly: !options.lan, webRoot: webRoot)
-        sameNetwork = LocalMode(port: (options.port ?? _config.port) + 2, configDir: store.dir)
+        sameNetwork = LocalMode(port: (options.port ?? _config.port) + 2, configDir: store.dir, netQueue: server.queue)
         (src as? TestPatternSource)?.injector = injector
         installKeymap(keymap)
         source.onFrame = { [weak self] pb in self?.deliver(pb) }
@@ -826,7 +826,10 @@ final class NanoCore {
     /// main thread
     private func tickStats() {
         server.queue.async {
-            for p in self.pending.values where Date().timeIntervalSince(p.lastMessageAt) > 10 {
+            // Silent ones, and ones that haven't unlocked after 5 minutes (pairing takes 2 at most):
+            // a stranger can't keep a connection open just by pinging.
+            for p in self.pending.values where Date().timeIntervalSince(p.lastMessageAt) > 10
+                || (!p.isAuthed && Date().timeIntervalSince(p.createdAt) > 300) {
                 p.ws.close()
                 self.detach(p)
             }

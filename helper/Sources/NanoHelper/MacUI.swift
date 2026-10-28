@@ -151,11 +151,13 @@ struct ApprovalCard: View {
                 .font(.system(size: compact ? 26 : 38, weight: .bold, design: .rounded).monospacedDigit())
                 .tracking(compact ? 6 : 10)
             HStack {
+                // Allowing takes a click: a Return typed into whatever had focus when this popped up
+                // must not let a phone in. Esc denies.
                 Button("Deny") { actions.answer(prompt.id, allow: false) }
+                    .keyboardShortcut(.cancelAction)
                     .frame(maxWidth: .infinity)
                 Button("Allow") { actions.answer(prompt.id, allow: true) }
                     .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(.defaultAction)
                     .frame(maxWidth: .infinity)
             }
             .controlSize(compact ? .regular : .large)

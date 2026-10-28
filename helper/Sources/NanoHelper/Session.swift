@@ -66,6 +66,7 @@ final class Session {
     var clientName: String
     var stage: Stage = .anonymous
     var challenge: (bytes: [UInt8], at: Date)?
+    let createdAt = Date()
     private(set) var lastInputAt = Date()
     private var logsBeforeAuth = 0
     private(set) var quality: Quality = .balanced
@@ -202,6 +203,7 @@ final class Session {
 
     // MARK: Messages from the phone (net queue)
 
+    private static let strangerLogs = LogBudget(perMinute: 30)
     private static let authTypes: Set<String> = ["auth", "auth-passkey", "auth-pin", "pair", "passkey-begin",
                                                  "passkey-register", "pin-set", "pair-finish", "lock", "forget"]
     private static let pairingTypes: Set<String> = ["pair", "passkey-begin", "passkey-register", "pin-set", "pair-finish"]
@@ -220,15 +222,19 @@ final class Session {
               let t = m["t"] as? String else { return }
         switch t {
         case "ping":
-            return send(["t": "pong", "ts": m["ts"] ?? 0])
+            // Echo only a plain number (before sign-in, anyone can send this).
+            let ts = (m["ts"] as? NSNumber)?.doubleValue ?? 0
+            return send(["t": "pong", "ts": ts.isFinite ? ts : 0])
         case "log":
-            // A few lines before unlocking (pairing problems), unlimited after.
-            if !isAuthed {
-                logsBeforeAuth += 1
-                guard logsBeforeAuth <= 20 else { return }
-            }
-            let msg = (m["msg"] as? String ?? "").prefix(800)
-            return Log.info("📱 \(m["level"] as? String ?? "log"): \(msg)")
+            let level = (m["level"] as? String ?? "log").prefix(8)
+            let msg = (m["msg"] as? String ?? "").prefix(800).replacingOccurrences(of: "\n", with: " ")
+            let line = "📱 \(level): \(msg)"
+            // Unlimited once unlocked. Before that, a few lines per connection (pairing problems) and
+            // a budget for all of those connections together, so strangers can't fill the log.
+            if isAuthed { return Log.info(line) }
+            logsBeforeAuth += 1
+            guard logsBeforeAuth <= 20 else { return }
+            return Session.strangerLogs.log { Log.info(line) }
         case _ where Session.authTypes.contains(t):
             // On the local network (anyone on a shared Wi-Fi can reach it), paired iPhones may unlock,
             // but nobody can start pairing: that's only through Tailscale.

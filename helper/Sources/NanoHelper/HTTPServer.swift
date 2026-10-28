@@ -9,7 +9,7 @@ import CryptoKit
 /// With `tls`, it's local mode's entrance instead (LocalMode): HTTPS on the local network, only
 /// the WebSocket, only from private addresses, only for Duo Mac's own page (`allowedOrigin`).
 final class HTTPServer {
-    let queue = DispatchQueue(label: "nano.net", qos: .userInteractive)
+    let queue: DispatchQueue
     let port: UInt16
     let localhostOnly: Bool
     let webRoot: URL
@@ -23,7 +23,11 @@ final class HTTPServer {
     /// Generated files (path → body and type), served before the web app's own (main thread safe).
     var dynamicFile: ((String) -> (Data, String)?)?
 
-    init(port: UInt16, localhostOnly: Bool, webRoot: URL, tls: sec_identity_t? = nil, allowedOrigin: (() -> String?)? = nil) {
+    /// `queue`: where connections are handled; local mode's entrance shares the main server's, since
+    /// sessions from both share the sign-in state (AuthManager, NanoCore), which isn't thread-safe.
+    init(port: UInt16, localhostOnly: Bool, webRoot: URL, tls: sec_identity_t? = nil, allowedOrigin: (() -> String?)? = nil,
+         queue: DispatchQueue? = nil) {
+        self.queue = queue ?? DispatchQueue(label: "nano.net", qos: .userInteractive)
         self.port = port
         self.localhostOnly = localhostOnly
         self.webRoot = webRoot.standardizedFileURL
@@ -91,6 +95,15 @@ final class HTTPServer {
         listener?.cancel()
         listener = nil
     }
+
+    /// The names the main server answers to: this Mac itself, or its Tailscale name (Tailscale Serve
+    /// forwards the phone's requests). Anything else is DNS rebinding: a website pointing a name of
+    /// its own at 127.0.0.1 to talk to this server as if it were its own site.
+    static func isOwnName(_ host: String?) -> Bool {
+        guard let host else { return false }
+        let name = PeerInfo.stripPort(host)
+        return name == "localhost" || name == "127.0.0.1" || name == "::1" || name.hasSuffix(".ts.net")
+    }
 }
 
 /// Handles exactly one request, then either closes or hands the socket to a WebSocketConnection.
@@ -98,7 +111,10 @@ private final class HTTPConnection {
     let conn: NWConnection
     unowned let server: HTTPServer
     private var buffer = Data()
+    private var arrived = false               // the request's headers are all here
     private static let headerEnd = Data([13, 10, 13, 10])
+    /// Refused requests can come in floods: a few lines a minute in the log, not one each.
+    private static let refusals = LogBudget(perMinute: 10)
 
     init(conn: NWConnection, server: HTTPServer) {
         self.conn = conn
@@ -110,6 +126,11 @@ private final class HTTPConnection {
             if case .failed = st { self?.conn.cancel() }
         }
         conn.start(queue: server.queue)
+        // A request that never finishes arriving (a stuck or deliberately slow client) mustn't hold
+        // the connection open forever.
+        server.queue.asyncAfter(deadline: .now() + 10) { [self] in
+            if !arrived { conn.cancel() }
+        }
         receive()
     }
 
@@ -131,6 +152,7 @@ private final class HTTPConnection {
     }
 
     private func handle(head: String, rest: Data) {
+        arrived = true
         let lines = head.components(separatedBy: "\r\n")
         let parts = (lines.first ?? "").split(separator: " ")
         guard parts.count >= 2 else { return respond(400, "Bad Request") }
@@ -144,6 +166,10 @@ private final class HTTPConnection {
             headers[k] = v
         }
         let path = URLComponents(string: target)?.path ?? "/"
+        if server.localhostOnly && !HTTPServer.isOwnName(headers["host"]) {
+            HTTPConnection.refusals.log { Log.warn("Refused a request addressed to \(headers["host"] ?? "no host")") }
+            return respond(403, "Forbidden")
+        }
 
         switch path {
         case "/ws":
@@ -198,9 +224,11 @@ private final class HTTPConnection {
         headers["x-duo-local"] = nil // only this server says that
         if server.isLocalEntrance {
             // Only Duo Mac's own page, at its Tailscale address (or the phone's saved copy of it).
+            // (Only browsers can't fake this header: a program on the network can. The credentials are
+            // what keeps it out.)
             guard let origin = headers["origin"], let allowed = server.allowedOrigin?(), origin.lowercased() == allowed.lowercased(),
                   let host = URLComponents(string: allowed)?.host else {
-                Log.warn("Local mode: refused a connection from a page at \(headers["origin"] ?? "nowhere")")
+                HTTPConnection.refusals.log { Log.warn("Local mode: refused a connection from a page at \(headers["origin"] ?? "nowhere")") }
                 return respond(403, "Forbidden")
             }
             // The page's address is what passkeys are bound to; the caller is on the local network.
@@ -208,12 +236,17 @@ private final class HTTPConnection {
             headers["tailscale-user-login"] = nil
             headers["x-forwarded-host"] = host
             headers["x-duo-local"] = "1"
-        } else if let origin = headers["origin"], let o = URLComponents(string: origin), let oh = o.host?.lowercased() {
-            // Only our own page may open the socket (not some other site the phone's browser has open).
+        } else {
+            // Only our own page may open the socket: not some other site the browser has open, nor a
+            // page that hides where it's from (a sandboxed frame says "null").
+            guard let origin = headers["origin"], let o = URLComponents(string: origin), let oh = o.host?.lowercased() else {
+                HTTPConnection.refusals.log { Log.warn("Refused a connection from a page that doesn't say where it's from") }
+                return respond(403, "Forbidden")
+            }
             let originHost = oh + (o.port.map { ":\($0)" } ?? "")
             let hosts = [headers["host"], headers["x-forwarded-host"]].compactMap { $0?.lowercased() }
             guard hosts.contains(originHost) else {
-                Log.warn("Refused a connection from a page at \(origin)")
+                HTTPConnection.refusals.log { Log.warn("Refused a connection from a page at \(origin)") }
                 return respond(403, "Forbidden")
             }
         }

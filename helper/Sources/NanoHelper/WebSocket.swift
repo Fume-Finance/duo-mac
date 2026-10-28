@@ -45,7 +45,10 @@ final class WebSocketConnection {
     func send(text: String) { sendFrame(opcode: 0x1, payload: Data(text.utf8)) }
 
     func send(json: [String: Any]) {
-        guard let d = try? JSONSerialization.data(withJSONObject: json) else { return }
+        // Some numbers can't be written as JSON (infinity: "1e999" from the phone reads as one), and
+        // JSONSerialization then raises an Objective-C exception, which `try?` doesn't catch: it would
+        // take the whole app down. Check first.
+        guard JSONSerialization.isValidJSONObject(json), let d = try? JSONSerialization.data(withJSONObject: json) else { return }
         sendFrame(opcode: 0x1, payload: d)
     }
 
