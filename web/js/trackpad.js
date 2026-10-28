@@ -198,6 +198,7 @@ export class Trackpad {
       const t = this.two;
       // The gesture ends when the first of its fingers lifts.
       t.tap = !cancelled && !t.moved && !t.kind && now - t.start < TWO_TAP_MS;
+      if (t.kind === 'scroll') this.cb.scrollEnd?.(false);
       if (t.kind === 'scroll' && !cancelled) this.startMomentum(t.v, now);
       else if (t.kind === 'pinch') this.cb.zoom?.('end');
       this.lastTap.t = 0;
@@ -237,6 +238,7 @@ export class Trackpad {
       this.cb.scroll(vx * dt, vy * dt, true);
       if (Math.hypot(vx, vy) < 0.03) {
         this.momentum = 0;
+        this.cb.scrollEnd?.(true);
         return;
       }
       this.momentum = requestAnimationFrame(step);
@@ -248,6 +250,7 @@ export class Trackpad {
     if (!this.momentum) return false;
     cancelAnimationFrame(this.momentum);
     this.momentum = 0;
+    this.cb.scrollEnd?.(true);
     return true;
   }
 

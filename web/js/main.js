@@ -73,7 +73,7 @@ screen.onLayout = () => macCursor.render();
 // ───── Input batching ─────
 // Pointer and scroll deltas are summed and sent at most ~120×/s; the first after a pause goes out
 // right away (no waiting for the batch). Everything else goes out immediately (in order).
-const acc = { mx: 0, my: 0, sx: 0, sy: 0 };
+const acc = { mx: 0, my: 0, sx: 0, sy: 0, glide: false };
 let flushTimer = 0, lastFlush = 0, moveSeq = 0;
 const r2 = (v) => Math.round(v * 100) / 100;
 
@@ -91,7 +91,7 @@ function flush(force) {
   lastFlush = performance.now();
   // q: which moves the Mac has applied, so the pointer drawn here can be reconciled (js/cursor.js).
   if (acc.mx || acc.my) { link.send({ t: 'm', x: r2(acc.mx), y: r2(acc.my), q: ++moveSeq }); acc.mx = acc.my = 0; }
-  if (acc.sx || acc.sy) { link.send({ t: 's', x: r2(acc.sx), y: r2(acc.sy) }); acc.sx = acc.sy = 0; }
+  if (acc.sx || acc.sy) { link.send({ t: 's', x: r2(acc.sx), y: r2(acc.sy), ...(acc.glide && { m: 1 }) }); acc.sx = acc.sy = 0; }
 }
 
 function sendNow(m) {
@@ -148,13 +148,17 @@ const keyboard = new Keyboard($('#keyboard'), $('#keypop'), {
 });
 
 // ───── Trackpad ─────
-function scrollMac(dx, dy) {
+function scrollMac(dx, dy, glide = false) {
   keyboard.markUsed();
+  if (glide !== acc.glide) { flush(true); acc.glide = glide; } // finger steps and glide steps go apart
   const k = 2.4 * settings.scrollSpeed * (settings.naturalScroll ? 1 : -1);
   acc.sx += dx * k;
   acc.sy += dy * k;
   flushSoon();
 }
+/** The fingers lifted, or the glide after them stopped: the Mac ends the gesture like a trackpad
+ *  (apps that page sideways, like Calendar, only follow scrolls that begin and end). */
+function scrollEnd(glide) { sendNow({ t: 's', p: glide ? 'me' : 'e' }); }
 /** Three or four fingers swiping: Mission Control, App Exposé, or the next Space. */
 function swipeMac(dir) {
   const a = { up: 'missionControl', down: 'appExpose', left: 'spaceRight', right: 'spaceLeft' }[dir];
@@ -181,6 +185,7 @@ const trackpad = new Trackpad($('#padzone'), $('#trackpad'), {
   probe: () => probeText(),
   tapped: (id) => tappedText(id),
   scroll: scrollMac,
+  scrollEnd,
   zoom: zoomMac,
   swipe3: swipeMac,
   touched() {
@@ -237,11 +242,11 @@ $('#tool-set')?.addEventListener('click', () => (sheet.isOpen ? sheet.close() : 
 // Screen only: the screen is touched where you point (LidTouch), or is one big trackpad.
 const screenIsPad = () => { const v = view(); return v.layout === 'screen' && v.screenTouch === 'trackpad'; };
 const lidTouch = new LidTouch($('#screen-area'), screen, {
-  ...pointer, scroll: scrollMac, swipe3: swipeMac, probe: probeText, tapped: tappedText, enabled: () => !screenIsPad(),
+  ...pointer, scroll: scrollMac, scrollEnd, swipe3: swipeMac, probe: probeText, tapped: tappedText, enabled: () => !screenIsPad(),
   screenOnly: () => view().layout === 'screen',
 });
 const screenPad = new Trackpad($('#screen-area'), $('#screen-area'), {
-  ...pointer, probe: () => probeText(), tapped: (id) => tappedText(id), scroll: scrollMac, zoom: zoomMac, swipe3: swipeMac,
+  ...pointer, probe: () => probeText(), tapped: (id) => tappedText(id), scroll: scrollMac, scrollEnd, zoom: zoomMac, swipe3: swipeMac,
   touched: () => keyboard.markUsed(), enabled: screenIsPad,
 });
 

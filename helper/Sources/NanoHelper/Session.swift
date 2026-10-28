@@ -274,7 +274,10 @@ final class Session {
             pointerEcho.applied(m["q"])
         case "b": inj.button(int(m["b"]), down: int(m["d"]) == 1, clicks: int(m["n"], 1), flags: Session.flags(int(m["mod"])))
         case "c": inj.click(int(m["b"]), clicks: int(m["n"], 1), flags: Session.flags(int(m["mod"])))
-        case "s": inj.scroll(dx: num(m["x"]), dy: num(m["y"]))
+        case "s":
+            // p: "e" the fingers lifted, "me" the glide stopped; m: 1 a glide (momentum) step.
+            if let p = m["p"] as? String { inj.scrollEnded(momentum: p == "me") }
+            else { inj.scroll(dx: num(m["x"]), dy: num(m["y"]), momentum: int(m["m"]) == 1) }
         case "k": inj.key(UInt16(clamping: int(m["c"])), down: int(m["d"]) == 1, flags: Session.flags(int(m["mod"])), isRepeat: int(m["r"]) == 1)
         case "txt": if let s = m["s"] as? String, !s.isEmpty { inj.type(s) }
         case "aux": inj.aux(Int32(clamping: int(m["k"])), down: int(m["d"]) == 1)

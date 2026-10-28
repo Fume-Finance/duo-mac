@@ -339,7 +339,7 @@ export class LidTouch {
     try { this.el.setPointerCapture(e.pointerId); } catch {}
     const now = performance.now();
     if (e.isPrimary && this.p.size) this.reset(); // no other touch is down: drop stale ones
-    cancelAnimationFrame(this.momentum);
+    this.stopGlide();
     this.cb.touched?.();
     this.p.set(e.pointerId, { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY });
     if (this.p.size === 1) {
@@ -440,6 +440,7 @@ export class LidTouch {
         this.cb.abs(...this.screen.normalized(t.c.x, t.c.y));
         this.cb.click(1, 1);
       }
+      if (t.kind === 'scroll') this.cb.scrollEnd?.(false);
       if (t.kind === 'scroll' && !cancelled) this.glide(t.v, now);
       this.mode = this.p.size ? 'tail' : 'none';
     }
@@ -462,9 +463,17 @@ export class LidTouch {
       vx *= decay;
       vy *= decay;
       this.cb.scroll(vx * dt, vy * dt, true);
-      this.momentum = Math.hypot(vx, vy) < 0.03 ? 0 : requestAnimationFrame(step);
+      if (Math.hypot(vx, vy) >= 0.03) this.momentum = requestAnimationFrame(step);
+      else { this.momentum = 0; this.cb.scrollEnd?.(true); }
     };
     this.momentum = requestAnimationFrame(step);
+  }
+
+  stopGlide() {
+    if (!this.momentum) return;
+    cancelAnimationFrame(this.momentum);
+    this.momentum = 0;
+    this.cb.scrollEnd?.(true);
   }
 
   /** Forget all touches (app backgrounded, connection lost); lets go of a drag in progress. */

@@ -193,8 +193,11 @@ final class InputInjector {
         lastPostAt = Date()
     }
 
-    /// Pixel-precise ("continuous") scrolling, like a trackpad. Positive y scrolls up / reveals content above.
-    func scroll(dx: Double, dy: Double) {
+    /// Pixel-precise ("continuous") scrolling, posted the way a trackpad's comes: a gesture that
+    /// begins, changes and ends when the fingers lift, then momentum (`momentum`: the phone's glide).
+    /// Apps that page sideways (Calendar's weeks and months) only follow scrolls with those phases.
+    /// Positive y scrolls up / reveals content above.
+    func scroll(dx: Double, dy: Double, momentum: Bool = false) {
         lock.lock(); defer { lock.unlock() }
         scrollRemainder.x += dx
         scrollRemainder.y += dy
@@ -207,10 +210,51 @@ final class InputInjector {
             lastScrollLog = Date()
             record("scroll \(ix), \(iy)")
         }
+        // A phase that wasn't ended (an older web app on the phone sends no ends): end it first.
+        if momentum && scrollState == .touching { postScrollEndLocked(momentum: false) }
+        if !momentum && scrollState == .gliding { postScrollEndLocked(momentum: true) }
+        let next: ScrollState = momentum ? .gliding : .touching
+        let phase: Int64 = scrollState == next ? 2 : 1   // changed / began (momentum: continue / begin)
+        scrollState = next
+        endScrollLater()
         if dryRun { return }
         guard let e = CGEvent(scrollWheelEvent2Source: source, units: .pixel, wheelCount: 2, wheel1: iy, wheel2: ix, wheel3: 0) else { return }
+        e.setIntegerValueField(momentum ? .scrollWheelEventMomentumPhase : .scrollWheelEventScrollPhase, value: phase)
         e.location = locationLocked()
         e.post(tap: .cghidEventTap)
+    }
+
+    /// The fingers lifted (`momentum` false) or the glide stopped (true).
+    func scrollEnded(momentum: Bool) {
+        lock.lock(); defer { lock.unlock() }
+        if scrollState == (momentum ? .gliding : .touching) { postScrollEndLocked(momentum: momentum) }
+    }
+
+    private enum ScrollState { case idle, touching, gliding }
+    private var scrollState = ScrollState.idle
+    private var scrollGeneration = 0
+
+    private func postScrollEndLocked(momentum: Bool) {
+        scrollState = .idle
+        scrollRemainder = .zero
+        if dryRun { return }
+        guard let e = CGEvent(scrollWheelEvent2Source: source, units: .pixel, wheelCount: 2, wheel1: 0, wheel2: 0, wheel3: 0) else { return }
+        // Scroll phase 4 = ended; momentum phase 3 = end.
+        e.setIntegerValueField(momentum ? .scrollWheelEventMomentumPhase : .scrollWheelEventScrollPhase, value: momentum ? 3 : 4)
+        e.location = locationLocked()
+        e.post(tap: .cghidEventTap)
+    }
+
+    /// Ends a gesture the phone stopped telling us about (lost message, older web app).
+    private func endScrollLater() {
+        scrollGeneration += 1
+        let gen = scrollGeneration
+        DispatchQueue.global().asyncAfter(deadline: .now() + 1.5) { [weak self] in
+            guard let self else { return }
+            self.lock.lock(); defer { self.lock.unlock() }
+            guard gen == self.scrollGeneration, self.scrollState != .idle else { return }
+            self.postScrollEndLocked(momentum: self.scrollState == .gliding)
+        }
     }
 
     // MARK: Pinch
