@@ -195,7 +195,6 @@ final class InputInjector {
 
     /// Pixel-precise ("continuous") scrolling, posted the way a trackpad's comes: a gesture that
     /// begins, changes and ends when the fingers lift, then momentum (`momentum`: the phone's glide).
-    /// Apps that page sideways (Calendar's weeks and months) only follow scrolls with those phases.
     /// Positive y scrolls up / reveals content above.
     func scroll(dx: Double, dy: Double, momentum: Bool = false) {
         lock.lock(); defer { lock.unlock() }
@@ -222,6 +221,7 @@ final class InputInjector {
         e.setIntegerValueField(momentum ? .scrollWheelEventMomentumPhase : .scrollWheelEventScrollPhase, value: phase)
         e.location = locationLocked()
         e.post(tap: .cghidEventTap)
+        if !momentum { postScrollGestureLocked(phase: phase, dx: ix, dy: iy) }
     }
 
     /// The fingers lifted (`momentum` false) or the glide stopped (true).
@@ -243,7 +243,31 @@ final class InputInjector {
         e.setIntegerValueField(momentum ? .scrollWheelEventMomentumPhase : .scrollWheelEventScrollPhase, value: momentum ? 3 : 4)
         e.location = locationLocked()
         e.post(tap: .cghidEventTap)
+        if !momentum { postScrollGestureLocked(phase: 4) }
     }
+
+    /// The gesture event a trackpad sends after each scroll while fingers are on it (HID type 6,
+    /// scroll), with the same movement. Views that page sideways (Calendar's days and weeks) follow
+    /// the fingers by this movement, not the scroll's: without it they barely move, then jump when
+    /// the fingers lift.
+    private func postScrollGestureLocked(phase: Int64, dx: Int32 = 0, dy: Int32 = 0) {
+        guard let e = CGEvent(source: source) else { return }
+        e.type = Self.gestureType
+        e.location = locationLocked()
+        e.setIntegerValueField(Self.gestureHIDType, value: Self.hidScroll)
+        e.setIntegerValueField(Self.gesturePhase, value: phase)
+        e.setIntegerValueField(Self.gestureScrollFlag, value: 1)
+        let x = Double(dx), y = Double(dy)
+        for f in Self.gestureScrollX { e.setDoubleValueField(f, value: x) }
+        e.setIntegerValueField(Self.gestureScrollXInt, value: Int64(dx))
+        for f in Self.gestureScrollXFloat { e.setIntegerValueField(f, value: Self.floatBits(x)) }
+        for f in Self.gestureScrollY { e.setDoubleValueField(f, value: y) }
+        for f in Self.gestureScrollYFloat { e.setIntegerValueField(f, value: Self.floatBits(y)) }
+        e.post(tap: .cghidEventTap)
+    }
+
+    /// A delta as a float field holds it: a 0 is -0, as a MacBook trackpad's.
+    private static func floatBits(_ v: Double) -> Int64 { Int64(Float(v == 0 ? -0.0 : v).bitPattern) }
 
     /// Ends a gesture the phone stopped telling us about (lost message, older web app).
     private func endScrollLater() {
@@ -296,7 +320,15 @@ final class InputInjector {
     private static let gestureHIDType = CGEventField(rawValue: 110)!          // kCGSEventGestureHIDType
     private static let gestureZoom = CGEventField(rawValue: 113)!             // kCGSEventGestureZoomValue
     private static let gesturePhase = CGEventField(rawValue: 132)!            // kCGSEventGesturePhase
-    private static let hidZoom: Int64 = 8, hidBeginGesture: Int64 = 61, hidEndGesture: Int64 = 62
+    private static let hidZoom: Int64 = 8, hidScroll: Int64 = 6, hidBeginGesture: Int64 = 61, hidEndGesture: Int64 = 62
+    // A scroll gesture's movement, in every field a MacBook trackpad fills (from a recording of one):
+    // x as doubles, an integer and float bits; y as doubles and float bits. 135 is always 1.
+    private static let gestureScrollX = ([113, 114, 118] as [UInt32]).map { CGEventField(rawValue: $0)! }
+    private static let gestureScrollXInt = CGEventField(rawValue: 116)!
+    private static let gestureScrollXFloat = ([115, 117, 164] as [UInt32]).map { CGEventField(rawValue: $0)! }
+    private static let gestureScrollY = ([119, 139] as [UInt32]).map { CGEventField(rawValue: $0)! }
+    private static let gestureScrollYFloat = ([123, 165] as [UInt32]).map { CGEventField(rawValue: $0)! }
+    private static let gestureScrollFlag = CGEventField(rawValue: 135)!
 
     // MARK: Keyboard
 
