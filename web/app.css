@@ -1211,3 +1211,63 @@ button { font: inherit; color: inherit; }
 }
 #closed.silver .mark { background-image: linear-gradient(150deg, #f4f5f7, #a9abaf 60%, #d6d8db); filter: drop-shadow(0 1px 0 rgba(0, 0, 0, .08)); }
 @keyframes lid-in { from { opacity: 0; transform: scale(.96); } }
+
+/* ───── Touch ID marker (main.js): a glowing bar at the edge where the side button is ───── */
+#touchid { position: fixed; inset: 0; z-index: 300; pointer-events: none; }
+#touchid[hidden] { display: none; }
+#touchid .tid {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #fff;
+  font: 600 13px -apple-system, system-ui, sans-serif;
+  pointer-events: none;
+}
+#touchid .tid i {
+  display: block;
+  border-radius: 4px;
+  background: #fff;
+  box-shadow: 0 0 10px 3px rgba(120, 190, 255, .9);
+  animation: tid-pulse 1.2s ease-in-out infinite;
+}
+#touchid .tid span { padding: 4px 9px; border-radius: 10px; background: rgba(10, 132, 255, .92); white-space: nowrap; }
+#touchid .tid.top, #touchid .tid.bottom { flex-direction: column; transform: translateX(-50%); }
+#touchid .tid.top { top: 2px; }
+#touchid .tid.bottom { bottom: 2px; flex-direction: column-reverse; }
+#touchid .tid.top i, #touchid .tid.bottom i { width: 94px; height: 6px; }
+#touchid .tid.left, #touchid .tid.right { transform: translateY(-50%); }
+#touchid .tid.left { left: 2px; }
+#touchid .tid.right { right: 2px; flex-direction: row-reverse; }
+#touchid .tid.left i, #touchid .tid.right i { width: 6px; height: 94px; }
+#touchid .tid-note {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  max-width: 260px;
+  padding: 12px 16px;
+  border-radius: 14px;
+  background: rgba(30, 30, 34, .95);
+  border: 1px solid rgba(255, 255, 255, .15);
+  font: 500 14px/1.35 -apple-system, system-ui, sans-serif;
+  text-align: center;
+  color: #fff;
+  pointer-events: auto;
+}
+#touchid .tid-note p { margin: 0 0 10px; }
+#touchid .tid-note button {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  padding: 10px;
+  border: 0;
+  border-radius: 10px;
+  background: #0a84ff;
+  color: #fff;
+  font: 600 15px -apple-system, system-ui, sans-serif;
+}
+@keyframes tid-pulse { 50% { opacity: .45; } }

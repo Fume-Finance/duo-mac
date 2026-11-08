@@ -287,6 +287,7 @@ const sheet = new Sheet($('#sheet'), {
     showAuth('Locked', '');
   },
   changePin: () => { sheet.close(); askPin('change'); },
+  touchIdSpot: () => { sheet.close(); setSetting('touchId', ''); showTouchId(true); },
   forget: () => {
     if (!confirm(`Unpair this iPhone from ${macName()}? To use it again you’ll have to pair it at the Mac.`)) return;
     sheet.close();
@@ -720,6 +721,95 @@ app.addEventListener('pointerdown', (e) => {
   }
 }, true);
 
+// ───── Where Touch ID is ─────
+// An iPhone Duo's Touch ID is in its side button. Native apps get a bar from iOS pointing at it;
+// a web app doesn't, so while a passkey is asked for, a marker shows where to touch, turning with
+// the phone. Apple's specs put the button on the right edge of the closed phone; on the inner
+// screen that leaves two spots upright (iOS doesn't say which way up its 0° is): the first time,
+// both are shown and you tap the right one. Spots are in the upright (0°) frame, 0…1 across, down.
+const TOUCH_ID_SPOTS = { a: [0.345, 0], b: [0.655, 1] }; // checked on the phone: ~5 mm further in than first guessed
+const COVER_SPOT = [1, 0.3]; // folded, on the cover screen: the right edge, near the top
+const touchIdEl = document.createElement('div');
+touchIdEl.id = 'touchid';
+touchIdEl.hidden = true;
+document.body.appendChild(touchIdEl);
+let touchIdAsk = false, touchIdTimer = 0;
+
+/** How far the phone is turned from upright: 0, 90 (counterclockwise), -90 or 180. */
+function phoneTurn() {
+  if (typeof window.orientation === 'number') return window.orientation;
+  return (((window.screen.orientation?.angle || 0) + 180) % 360) - 180;
+}
+
+/** A spot in the upright frame, where it is on the screen now. */
+function spotNow([u, v]) {
+  switch (phoneTurn()) {
+    case 90: return [v, 1 - u];   // the phone's top edge is on the left
+    case -90: return [1 - v, u];  // … on the right
+    case 180: return [1 - u, 1 - v];
+    default: return [u, v];
+  }
+}
+
+function placeTouchId() {
+  const spots = foldedOpen ? { c: COVER_SPOT } : settings.touchId ? { [settings.touchId]: TOUCH_ID_SPOTS[settings.touchId] } : TOUCH_ID_SPOTS;
+  const W = innerWidth, H = innerHeight;
+  const edges = {};
+  touchIdEl.replaceChildren(...Object.entries(spots).map(([k, s]) => {
+    const [x, y] = spotNow(s);
+    const edge = y <= 0 ? 'top' : y >= 1 ? 'bottom' : x <= 0 ? 'left' : 'right';
+    edges[k] = edge;
+    const m = document.createElement('div');
+    m.className = `tid ${edge}`;
+    m.innerHTML = `<i></i><span>${touchIdAsk ? 'Here?' : 'Touch ID'}</span>`;
+    if (edge === 'top' || edge === 'bottom') m.style.left = `${Math.round(x * W)}px`;
+    else m.style.top = `${Math.round(y * H)}px`;
+    return m;
+  }));
+  if (touchIdAsk) {
+    // The answer buttons sit in the middle: iOS keeps taps on the status bar strip for itself.
+    const note = document.createElement('div');
+    note.className = 'tid-note';
+    note.innerHTML = '<p>Which marker is next to the Touch ID button?</p>';
+    for (const [k, edge] of Object.entries(edges)) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = `The ${edge} one`;
+      b.addEventListener('click', () => {
+        setSetting('touchId', k);
+        remoteLog('info', [`Touch ID marker: spot ${k}, the ${edge} one (turn ${phoneTurn()}°)`]);
+        hideTouchId();
+      });
+      note.appendChild(b);
+    }
+    touchIdEl.appendChild(note);
+  }
+}
+
+function showTouchId(ask) {
+  if (!settings.seenDuo) return; // an iPhone Duo (other iPhones have Face ID)
+  clearTimeout(touchIdTimer);
+  touchIdAsk = ask;
+  touchIdEl.classList.toggle('ask', ask);
+  placeTouchId();
+  touchIdEl.hidden = false;
+  if (ask) touchIdTimer = setTimeout(hideTouchId, 60000);
+}
+
+function hideTouchId() {
+  clearTimeout(touchIdTimer);
+  touchIdEl.hidden = true;
+  touchIdAsk = false;
+}
+
+/** While passkey `p` asks for Touch ID, mark where it is; then, the first time, ask which spot was right. */
+function touchIdWhile(p) {
+  showTouchId(false);
+  p.finally(() => (settings.touchId || foldedOpen ? hideTouchId() : showTouchId(true))).catch(() => {});
+}
+window.addEventListener('resize', () => { if (!touchIdEl.hidden) placeTouchId(); });
+window.addEventListener('orientationchange', () => setTimeout(() => { if (!touchIdEl.hidden) placeTouchId(); }, 300));
+
 // ───── Pairing ─────
 function showPairing(note = '') {
   pairing = null;
@@ -784,6 +874,7 @@ function showFaceIDSetup(note = '') {
       { label: 'Set Up Passkey', primary: true, onClick: () => {
         const p = createPasskey(passkeyOpts); // straight from the tap, or Safari won't show passkey
         showAuth('Passkey…');
+        touchIdWhile(p);
         p.then((r) => link.send({ t: 'passkey-register', ...r }))
           .catch((e) => {
             console.warn('passkey setup failed:', e?.name, e?.message);
@@ -864,6 +955,7 @@ function faceIdUnlock() {
   powered = true;
   sound.unlock();
   showAuth('Passkey…');
+  touchIdWhile(p);
   p.then((r) => link.send({ t: 'auth-passkey', ...r }))
     .catch((e) => {
       console.warn('passkey unlock failed:', e?.name, e?.message);

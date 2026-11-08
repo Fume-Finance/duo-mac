@@ -368,6 +368,8 @@ export class Sheet {
       <button type="button" class="btn" data-act="lock">Lock</button></div>
     <div class="item"><span class="l">${i.device.pin ? 'PIN' : 'Backup PIN'}<small>For when the passkey isn’t available.</small></span>
       <button type="button" class="btn" data-act="changePin">${i.device.pin ? 'Change…' : 'Add…'}</button></div>
+    ${settings.seenDuo ? `<div class="item"><span class="l">Touch ID marker<small>Shows where the Touch ID button is while a passkey is asked for.</small></span>
+      <button type="button" class="btn" data-act="touchIdSpot">${settings.touchId ? 'Set again…' : 'Set…'}</button></div>` : ''}
     <div class="item"><span class="l">Unpair this iPhone<small>To use it again you’ll pair it at the Mac.</small></span>
       <button type="button" class="btn" data-act="forget">Unpair…</button></div>
   </div></div>` : ''}
