@@ -35,6 +35,9 @@ final class NanoCore {
     private var awakeHeld = false
     private var reachID: IOPMAssertionID = 0 // main thread
     private var reachHeld = false
+    private var lockScreenID: IOPMAssertionID = 0 // main thread
+    private var captureRestarts: [Date] = []  // net queue
+    private var captureStartedAt = Date.distantPast // net queue
     private var timers: [Timer] = []
     private var askedForScreen = false
     private var statTicks = 0                // net queue
@@ -79,7 +82,7 @@ final class NanoCore {
             self.sinkLock.unlock()
             s?.ingest(sound: d)
         }
-        source.onError = { [weak self] err in self?.captureFailed(err) }
+        source.onError = { [weak self] err in self?.captureFailed(err, at: Date()) }
         auth = AuthManager(core: self, dir: store.dir)
     }
 
@@ -135,6 +138,7 @@ final class NanoCore {
         _ = done.wait(timeout: .now() + 0.5)
         source.stop()
         setAwake(false)
+        if lockScreenID != 0 { IOPMAssertionRelease(lockScreenID) }
         nano.destroy()
         // Nothing answers at the Mac's Tailscale address while the app isn't running.
         if !localMode { tailscale.stopServing(port: port, wait: true) }
@@ -146,7 +150,12 @@ final class NanoCore {
         })
         timers.append(Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             self?.tickStats()
+            self?.keepLockScreenOn()
         })
+        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.screensDidSleepNotification, object: nil,
+                                                          queue: .main) { [weak self] _ in
+            self?.keepLockScreenOn(wake: true)
+        }
         timers.append(Timer.scheduledTimer(withTimeInterval: 4, repeats: true) { [weak self] _ in
             guard let self else { return }
             let every: TimeInterval = self.tsStatus.phase == .ready && self.tsStatus.reachable ? 30 : 4
@@ -470,7 +479,7 @@ final class NanoCore {
         if nanoFailed {
             s.send(["t": "notice", "level": "info", "code": "nano-unavailable",
                     "msg": "The Duo display couldn't be created on this Mac; showing the Mac's screen instead."])
-        } else if waitForUnlock {
+        } else if waitForUnlock && NanoCore.screenIsLocked() {
             s.send(["t": "notice", "level": "info", "code": "nano-locked",
                     "msg": "The Mac is locked: unlock it to switch to the full-size Duo display."])
         }
@@ -493,6 +502,7 @@ final class NanoCore {
             }
             return
         }
+        captureStartedAt = Date()
         source.start(width: size.w, height: size.h, fps: options.testPattern ? 30 : 60) { [weak self, weak s] err in
             guard let self, let err, let s else { return }
             self.server.queue.async { self.reportCaptureError(err, to: s) }
@@ -518,17 +528,63 @@ final class NanoCore {
         }
     }
 
-    /// Wakes the Mac's screens if they're asleep and waits (up to 3 s) until they're on.
+    /// Wakes the Mac's screens if they're asleep and waits (up to 3 s) until they're on, then (up to
+    /// 1.5 s) for the lock screen to go away by itself, as it does within the "require password" delay.
     @discardableResult
     static func wakeDisplays() -> Bool {
         guard CGDisplayIsAsleep(CGMainDisplayID()) != 0 else { return false }
+        // A Duo display that fell asleep at the lock screen stays asleep while the Mac's own screens
+        // are on, whatever activity is declared: switch them all off, so they wake up together.
+        var ids = [CGDirectDisplayID](repeating: 0, count: 16)
+        var count: UInt32 = 0
+        CGGetOnlineDisplayList(16, &ids, &count)
+        if ids.prefix(Int(count)).contains(where: { CGDisplayIsAsleep($0) == 0 }) {
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
+            p.arguments = ["displaysleepnow"]
+            try? p.run()
+            p.waitUntilExit()
+            usleep(500_000)
+        }
         var id: IOPMAssertionID = 0
         IOPMAssertionDeclareUserActivity("Duo Mac: iPhone connected" as CFString, kIOPMUserActiveLocal, &id)
+        nudgePointer()
         let deadline = Date().addingTimeInterval(3)
         while CGDisplayIsAsleep(CGMainDisplayID()) != 0 && Date() < deadline { usleep(100_000) }
         Log.info(CGDisplayIsAsleep(CGMainDisplayID()) != 0 ? "The Mac's screen didn't wake up" : "Woke the Mac's screen")
         IOPMAssertionRelease(id)
+        let unlockBy = Date().addingTimeInterval(1.5)
+        while screenIsLocked() && Date() < unlockBy { usleep(100_000) }
         return true
+    }
+
+    /// Declared activity alone lights the screens for some seconds only, and within the "require
+    /// password" delay the half-gone lock screen then switches them off again. Moving the pointer a
+    /// point and back is input, as if someone touched the trackpad.
+    static func nudgePointer() {
+        guard let at = CGEvent(source: nil)?.location else { return }
+        let src = CGEventSource(stateID: .hidSystemState)
+        for p in [CGPoint(x: at.x + (at.x > 0 ? -1 : 1), y: at.y), at] {
+            CGEvent(mouseEventSource: src, mouseType: .mouseMoved, mouseCursorPosition: p, mouseButton: .left)?
+                .post(tap: .cghidEventTap)
+        }
+    }
+
+    /// At the lock screen macOS turns the display off 10 s after the last user activity, whatever
+    /// the "keep the display on" assertion says, and a display that's off can't be captured. So
+    /// while the phone is connected to a locked Mac, keep declaring activity: macOS still switches
+    /// the display off every 30 s, and declaring again turns it back on within half a second.
+    /// `wake`: the screens just went to sleep. main thread
+    private func keepLockScreenOn(wake: Bool = false) {
+        if model.connected && NanoCore.screenIsLocked() {
+            if lockScreenID == 0 || wake || CGDisplayIsAsleep(CGMainDisplayID()) != 0 {
+                IOPMAssertionDeclareUserActivity("Duo Mac: iPhone at the lock screen" as CFString, kIOPMUserActiveLocal, &lockScreenID)
+                if wake || CGDisplayIsAsleep(CGMainDisplayID()) != 0 { NanoCore.nudgePointer() }
+            }
+        } else if lockScreenID != 0 {
+            IOPMAssertionRelease(lockScreenID)
+            lockScreenID = 0
+        }
     }
 
     static func screenIsLocked() -> Bool {
@@ -665,12 +721,26 @@ final class NanoCore {
     }
 
     /// Capture stopped by itself (Stop in the menu bar recording indicator, display unplugged…).
-    /// The phone shows "Try again", which says hello again and restarts capture.
-    private func captureFailed(_ err: Error) {
+    /// The phone shows "Try again", which says hello again and restarts capture. When the screen
+    /// went to sleep (the lock screen switches it off every 30 s), capture restarts by itself.
+    private func captureFailed(_ err: Error, at failedAt: Date) {
         server.queue.async {
             guard let s = self.session else { return }
             let ns = err as NSError
+            // The stream of a Duo display being replaced (the phone was folded or turned): capture
+            // has already started again on the new one.
+            if self.captureStartedAt > failedAt {
+                Log.debug("Capture of the replaced display ended: \(ns.localizedDescription)")
+                return
+            }
             Log.warn("Screen capture stopped: \(ns.domain) \(ns.code) \(ns.localizedDescription)")
+            self.captureRestarts.removeAll { Date().timeIntervalSince($0) > 60 }
+            if ns.code == -3815 && self.captureRestarts.count < 5 {   // SCStreamError.noCaptureSource
+                self.captureRestarts.append(Date())
+                Log.info("The screen went to sleep: waking it and capturing again")
+                self.startStreaming(for: s, reshape: false)
+                return
+            }
             s.send(["t": "notice", "level": "error", "code": "capture",
                     "msg": "Screen sharing stopped on the Mac (\(ns.localizedDescription)). Tap Try again to restart it."])
         }
