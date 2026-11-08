@@ -69,6 +69,16 @@ const screen = new Screen({ area: $('#screen-area'), wrap: $('#screen-wrap'), ca
 const macCursor = new MacCursor(screen, $('#mac-cursor'));
 screen.pointerDrawn = true;
 screen.onLayout = () => macCursor.render();
+// All screen: the ⌨︎ and ⚙︎ buttons sit over the Mac's bottom-right corner (a chat's send or
+// microphone button, the Dock). They step aside while the Mac's pointer is near them.
+const toolsEl = $('#tools');
+macCursor.onRender = () => {
+  if (toolsEl.hidden || !app.classList.contains('screen-only') || !macCursor.pos) { toolsEl.classList.remove('shy'); return; }
+  const r = screen.rect, z = screen.zoom, a = screen.area.getBoundingClientRect(), t = toolsEl.getBoundingClientRect();
+  const x = a.left + z.x + z.s * (r.x + macCursor.pos[0] * r.w), y = a.top + z.y + z.s * (r.y + macCursor.pos[1] * r.h);
+  const dx = Math.max(t.left - x, 0, x - t.right), dy = Math.max(t.top - y, 0, y - t.bottom);
+  toolsEl.classList.toggle('shy', Math.hypot(dx, dy) < 110);
+};
 
 // ───── Input batching ─────
 // Pointer and scroll deltas are summed and sent at most ~120×/s; the first after a pause goes out
@@ -1541,7 +1551,7 @@ setInterval(() => {
 }, 1000);
 
 // Debug handle (Safari Web Inspector / tests).
-window.__nano = { screen, keyboard, trackpad, sheet, get link() { return link; }, settings };
+window.__nano = { screen, keyboard, trackpad, sheet, macCursor, get link() { return link; }, settings };
 
 // ───── Start ─────
 applyTheme();

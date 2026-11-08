@@ -67,6 +67,7 @@ export class MacCursor {
     this.el.style.width = `${sh.w * k}px`;
     this.el.style.height = `${sh.h * k}px`;
     this.el.style.transform = `translate(${left}px, ${top}px)`;
+    this.onRender?.();
     // Zoomed in, the view follows the pointer: this one, not the one in the last frame.
     if (s.streamW) {
       s.cursor = [this.pos[0] * s.streamW, this.pos[1] * s.streamH];

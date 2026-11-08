@@ -397,6 +397,10 @@ button { font: inherit; color: inherit; }
 }
 #app.screen-only #tools { top: auto; bottom: max(var(--sab), 10px); }
 #tools[hidden] { display: none; }
+#tools { transition: opacity .2s; }
+#app.screen-only #tools { opacity: .75; }
+/* The Mac's pointer is near them: out of the way, so what's under them can be seen and clicked. */
+#app #tools.shy { opacity: 0; pointer-events: none; }
 #tools button {
   display: grid;
   place-items: center;
