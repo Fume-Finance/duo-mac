@@ -591,6 +591,15 @@ button { font: inherit; color: inherit; }
 }
 #trackpad.touching { box-shadow: inset 0 0 0 1px var(--pad-edge), inset 0 0 18px rgba(255, 255, 255, .08); }
 #trackpad.dragging { box-shadow: inset 0 0 0 2px rgba(90, 170, 255, .7), inset 0 0 18px rgba(90, 170, 255, .15); }
+/* The screen as a trackpad, holding something: the same blue edge, over the picture. */
+#screen-area.dragging::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  box-shadow: inset 0 0 0 2px rgba(90, 170, 255, .7), inset 0 0 18px rgba(90, 170, 255, .15);
+  pointer-events: none;
+}
 
 #trackpad .hint {
   position: absolute;

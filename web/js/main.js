@@ -120,6 +120,8 @@ const pointer = {
     sendNow({ t: 'b', b, d: down ? 1 : 0, n, mod: keyboard.mask() });
     if (!down) keyboard.consumeLatched();
   },
+  /** A finger held still on a trackpad: sliding now drags. Glass doesn't click, so a sound says so. */
+  held() { sound.click('mod'); haptic(); },
 };
 
 // ───── Keyboard ─────

@@ -3,6 +3,8 @@
 //   1 finger move ........ pointer (with acceleration)
 //   tap .................. click   (tap again quickly: double / triple click)
 //   tap, then drag ....... drag (mouse button held until you lift)
+//   hold, then drag ...... the same: a finger held still for a moment presses the button, as if
+//                          you pressed a real trackpad
 //   2-finger tap ......... right-click
 //   2-finger move ........ scroll (with momentum)
 //   pinch ................ zoom (the Mac's own pinch: the app under the pointer zooms)
@@ -20,6 +22,7 @@ const TWO_TAP_MS = 350;      // max duration of a two-finger tap
 const TAP_SLOP = 7;          // px a finger may wander and still count as a tap
 const MULTI_TAP_MS = 300;    // window for the next tap of a double-click / tap-drag
 const MULTI_TAP_DIST = 45;
+const HOLD_MS = 400;         // a finger still this long presses the button (then slide to drag)
 
 function accelerate(dx, dy, dt) {
   const d = Math.hypot(dx, dy);
@@ -39,6 +42,7 @@ export class Trackpad {
     this.g = null;
     this.lastTap = { t: 0, x: 0, y: 0, n: 0 };
     this.momentum = 0;
+    this.holdTimer = 0;
     zone.addEventListener('pointerdown', (e) => this.down(e));
     zone.addEventListener('pointermove', (e) => this.move(e));
     zone.addEventListener('pointerup', (e) => this.up(e, false));
@@ -77,9 +81,11 @@ export class Trackpad {
     if (this.p.size === 1) {
       const quick = now - this.lastTap.t < MULTI_TAP_MS &&
         Math.hypot(e.clientX - this.lastTap.x, e.clientY - this.lastTap.y) < MULTI_TAP_DIST;
-      this.g = { start: now, moved: false, stopper: stoppedMomentum, followsTap: quick, primary: e.pointerId };
+      this.g = { start: now, moved: false, stopper: stoppedMomentum, followsTap: quick, armed: false, primary: e.pointerId };
       this.g.probe = this.cb.probe?.() || 0; // a text field under the pointer?
       this.mode = 'one';
+      clearTimeout(this.holdTimer);
+      if (!stoppedMomentum) this.holdTimer = setTimeout(() => this.arm(), HOLD_MS);
       return;
     }
     if (!this.g) return;
@@ -92,6 +98,7 @@ export class Trackpad {
     if (this.mode === 'one' && this.p.size === 2) {
       this.mode = 'two';
       this.g.followsTap = false;
+      this.disarm();
       const c = this.centroid(ids);
       this.two = { ids, c, last: c, d: this.spread(ids), kind: null, moved: false, start: now, v: [] };
     } else if (this.mode === 'two' && !this.two.kind && !this.two.moved) {
@@ -115,7 +122,8 @@ export class Trackpad {
       if (e.pointerId !== this.g.primary) return;
       if (!this.g.moved && Math.hypot(pt.x - pt.sx, pt.y - pt.sy) > TAP_SLOP) {
         this.g.moved = true;
-        if (this.mode === 'one' && this.g.followsTap) {
+        clearTimeout(this.holdTimer);
+        if (this.mode === 'one' && (this.g.followsTap || this.g.armed)) {
           this.mode = 'drag';
           this.surface.classList.add('dragging');
           this.cb.button(0, true, 1);
@@ -176,6 +184,7 @@ export class Trackpad {
 
     if (this.mode === 'one') {
       if (e.pointerId === this.g.primary) {
+        this.disarm(); // held, but never slid: nothing happens
         const tap = !cancelled && !this.g.moved && now - this.g.start < TAP_MS && !this.g.stopper;
         if (tap) {
           const n = this.g.followsTap ? Math.min(3, this.lastTap.n + 1) : 1;
@@ -189,8 +198,7 @@ export class Trackpad {
       }
     } else if (this.mode === 'drag') {
       if (e.pointerId === this.g.primary) {
-        this.cb.button(0, false, 1);
-        this.surface.classList.remove('dragging');
+        this.drop();
         this.lastTap.t = 0;
         if (this.p.size) this.mode = 'tail';
       }
@@ -254,12 +262,31 @@ export class Trackpad {
     return true;
   }
 
+  /** The finger has been still a moment: sliding now drags, as if it had pressed the trackpad. */
+  arm() {
+    if (this.mode !== 'one' || this.g.moved || this.p.size !== 1) return;
+    this.g.armed = true;
+    this.surface.classList.add('dragging');
+    this.cb.held?.();
+  }
+
+  disarm() {
+    clearTimeout(this.holdTimer);
+    if (!this.g?.armed) return;
+    this.g.armed = false;
+    this.surface.classList.remove('dragging');
+  }
+
+  /** Lets go of the Mac's button: the drag ends where the pointer is. */
+  drop() {
+    this.cb.button(0, false, 1);
+    this.surface.classList.remove('dragging');
+  }
+
   /** Lift everything (app went to the background, connection lost, stale touches). */
   reset() {
-    if (this.mode === 'drag') {
-      this.cb.button(0, false, 1);
-      this.surface.classList.remove('dragging');
-    }
+    this.disarm();
+    if (this.mode === 'drag') this.drop();
     this.stopMomentum();
     this.p.clear();
     this.mode = 'none';
