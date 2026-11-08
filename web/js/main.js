@@ -348,7 +348,7 @@ function px(v) { return parseFloat(v) || 0; }
 
 // CSS custom properties hold the unresolved env(...) text, so measure the safe areas with a probe.
 const probe = document.createElement('div');
-probe.style.cssText = 'position:fixed;visibility:hidden;pointer-events:none;' +
+probe.style.cssText = 'position:fixed;visibility:hidden;pointer-events:none;height:100lvh;' +
   'padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px)';
 document.body.appendChild(probe);
 function safeArea() {
@@ -379,8 +379,11 @@ function layout() {
   // iPhone Duo (inner display, fold across): the status bar is an 82 pt strip with the clock and status
   // ring in its right corner only (a regular iPhone's runs across a 47–62 pt one). iOS can't hide it.
   const tallTop = safeArea().top >= 70;
-  checkFold(tallTop);
-  sideways = innerWidth > innerHeight;
+  // iOS may take the iPhone keyboard's height off the window: while it's up, the phone keeps the shape
+  // it had (unless it turns).
+  const winH = typing() && innerWidth === kbShape.w ? Math.max(innerHeight, kbShape.h) : innerHeight;
+  checkFold(tallTop, winH);
+  sideways = innerWidth > winH;
   const v = view();
   const screenOnly = v.layout === 'screen';
   const padOnly = v.layout === 'trackpad';
@@ -398,6 +401,7 @@ function layout() {
   if (statsEl.parentElement !== statsHome) statsHome.appendChild(statsEl);
   if (!screenOnly) layoutDeck();
   screen.layout();
+  if (typing()) fitAboveKeyboard();
   const chin = $('#chin');
   chin.classList.toggle('tiny', chin.clientHeight < 12);
   clearTimeout(resizeTimer);
@@ -411,18 +415,21 @@ function layout() {
 // Folded: show a closed lid and hang up like a closed MacBook, so the Mac stops sharing its screen
 // and can sleep. The setting turns this off.
 const closedEl = $('#closed');
-let lidClosed = false, foldTimer = 0, lastShort = 0;
-function checkFold(tallTop) {
-  const long = Math.max(innerWidth, innerHeight), short = Math.min(innerWidth, innerHeight) || 1;
+let lidClosed = false, foldTimer = 0, lastW = 0, lastH = 0;
+function checkFold(tallTop, winH) {
+  const long = Math.max(innerWidth, winH), short = Math.min(innerWidth, winH) || 1;
   if (tallTop && long / short < 1.6 && short > settings.duoShort) {
     setSetting('duoShort', short);
     if (!settings.seenDuo) setSetting('seenDuo', true);
   }
-  if (Math.abs(short - lastShort) > 20) {
-    lastShort = short;
-    remoteLog('info', [`fold: ${innerWidth}×${innerHeight} top ${safeArea().top} (inner screen short side ${settings.duoShort})`]);
-  }
   const foldedShape = settings.seenDuo && settings.duoShort > 0 && short < settings.duoShort * 0.85;
+  if (Math.abs(innerWidth - lastW) > 20 || Math.abs(winH - lastH) > 20) {
+    lastW = innerWidth;
+    lastH = winH;
+    const sa = safeArea();
+    remoteLog('info', [`fold: ${innerWidth}×${winH} top ${sa.top} sides ${sa.left}/${sa.right} lvh ${probe.offsetHeight} ` +
+      `zoom ${(visualViewport?.scale || 1).toFixed(2)} (inner screen short side ${settings.duoShort})`]);
+  }
   const folded = settings.foldCloses && foldedShape;
   foldedOpen = foldedShape && !settings.foldCloses; // used folded: the whole screen is a trackpad
   if (lidClosed) orientLid();
@@ -468,7 +475,9 @@ function layoutDeck() {
   if (!W || !H) return;
   const sa = safeArea();
   const sab = sa.bottom, sal = sa.left, sar = sa.right;
-  const padX = Math.max(8, W * 0.025) + Math.max(sal, sar);
+  // Edge to edge: the keyboard as wide as the phone (bigger keys), no MacBook margins or grilles.
+  const wide = view().layout === 'laptop' && settings.keyboardSize !== 'macbook';
+  const padX = (wide ? 3 : Math.max(8, W * 0.025)) + Math.max(sal, sar);
   const padTop = Math.max(9, H * 0.035);
   const padBot = Math.max(6, sab * 0.75); // just clear of the home indicator, like a tab bar
   const aw = W - 2 * padX, ah = H - padTop - padBot;
@@ -483,10 +492,11 @@ function layoutDeck() {
     return;
   }
 
-  // Keyboard: 15.6u wide × 6.3u tall (keys + well); leave at least ~38% of the height for the trackpad.
-  let u = Math.min(aw / 15.6, (ah * 0.6) / 6.3);
+  // Keyboard: 15.6u wide × 6.3u tall (keys + well); leave at least ~38% of the height for the trackpad
+  // (~34% edge to edge, where it fills the width even when the height is what limits the keys).
+  let u = Math.min(aw / 15.6, (ah * (wide ? 0.64 : 0.6)) / 6.3);
   u = Math.max(12, Math.floor(u * 4) / 4);
-  const kbW = u * 15.6, kbH = u * 6.3;
+  const kbW = wide ? aw : u * 15.6, kbH = u * 6.3;
   const kbX = (W - kbW) / 2, kbY = padTop;
   const kb = $('#keyboard');
   kb.style.setProperty('--u', `${u}px`);
@@ -514,12 +524,13 @@ function layoutDeck() {
 }
 
 function sendResizeIfNeeded() {
-  if (!link.open || !cfg) return;
+  if (!link.open || !cfg || typing()) return; // the iPhone keyboard isn't a new shape (closing it checks again)
   const box = screen.boxPixels();
   if (Math.abs(box[0] - lastBox[0]) > lastBox[0] * 0.06 || Math.abs(box[1] - lastBox[1]) > lastBox[1] * 0.06) {
     // A new shape (the phone rotated, or iOS still growing the viewport just after launch, see
-    // app.css): reshape the Duo display to fill the screen instead of letterboxing it.
-    const reshaped = Math.abs(Math.log((box[0] / box[1]) / (lastBox[0] / lastBox[1]))) > 0.12;
+    // app.css): reshape the Duo display to fill the screen instead of letterboxing it. Since iOS 27.2
+    // an iPhone Duo's inner screen is 8% narrower sideways than upright, so even that counts.
+    const reshaped = Math.abs(Math.log((box[0] / box[1]) / (lastBox[0] / lastBox[1]))) > 0.03;
     lastBox = box;
     if (settings.macDisplay === 'nano' && (performance.now() < 6000 || reshaped)) link.send({ t: 'nano', ...nanoRequest(), box });
     else link.send({ t: 'resize', box });
@@ -542,7 +553,7 @@ onSetting((k, v) => {
   if (k === 'theme') applyTheme();
   if (k === 'foldCloses') layout();
   if (k === 'screenTouch' || k === 'layout') { lidTouch.reset(); screenPad.reset(); }
-  if (k === 'hinge' || k === 'hingePad' || k === 'layout' || k === 'notch' || k === 'topEdge' || k === 'haptics') layout();
+  if (k === 'hinge' || k === 'hingePad' || k === 'layout' || k === 'notch' || k === 'topEdge' || k === 'haptics' || k === 'keyboardSize') layout();
   if ((k === 'hinge' || k === 'hingePad' || k === 'topEdge' || k === 'layout') && settings.macDisplay === 'nano') {
     // Reshape the Mac's Duo display to the new screen area once the slider settles.
     clearTimeout(hingeTimer);
@@ -1235,6 +1246,7 @@ async function record() {
 // ───── iPhone keyboard (dictation, emoji, accents) ─────
 const iosInput = $('#ios-input');
 const iosBar = $('#ios-bar');
+function typing() { return document.activeElement === iosInput; }
 
 function tapKey(code, mod = 0) {
   sendNow({ t: 'k', c: code, d: 1, mod });
@@ -1251,6 +1263,12 @@ function openIOSKeyboard() {
   iosInput.style.pointerEvents = 'auto';
   iosInput.focus({ preventScroll: true });
   iosBar.hidden = false;
+  kbOpened = performance.now();
+  kbLogged = false;
+  kbShape = { w: innerWidth, h: innerHeight };
+  fitAboveKeyboard(kbCover[shapeKey()]); // as tall as last time: the screen shrinks while it slides in
+  clearTimeout(kbTimer);
+  kbTimer = setTimeout(fitAboveKeyboard, 1100); // settled (or no keyboard came: a hardware one)
 }
 
 function closeIOSKeyboard() {
@@ -1260,7 +1278,69 @@ function closeIOSKeyboard() {
 iosInput.addEventListener('blur', () => {
   iosBar.hidden = true;
   iosInput.style.pointerEvents = 'none';
+  clearTimeout(kbTimer);
+  screen.setFit(null);
+  placeIOSBar();
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(sendResizeIfNeeded, 350); // the phone may have turned meanwhile
 });
+
+// ───── The screen above the iPhone keyboard ─────
+// iOS slides its keyboard over the page without making the page smaller (only the visual viewport
+// shrinks), so it hid the bottom of the Mac's screen, often where you type (a chat box, Terminal).
+// While it's up, the whole screen is shown, smaller, in the part still visible. The Mac's display
+// keeps its shape: only the picture shrinks.
+const vv = window.visualViewport;
+const KB_KEY = 'nano.kbCover.v1';
+let kbCover = {}; // what the keyboard hid last time, per page size: { top, bottom } px
+try { kbCover = JSON.parse(localStorage.getItem(KB_KEY) || '{}') || {}; } catch {}
+let kbOpened = 0, kbTimer = 0, kbLogged = false, kbShape = { w: 0, h: 0 };
+const shapeKey = () => `${app.clientWidth}x${app.clientHeight}`;
+
+/** Fits the screen into what the keyboard leaves visible: measured, or `guess` ({ top, bottom } hidden). */
+function fitAboveKeyboard(guess) {
+  if (!typing()) { screen.setFit(null); placeIOSBar(); return; }
+  const H = app.clientHeight;
+  let hid = guess;
+  if (!hid) {
+    if (!vv) return;
+    hid = { top: Math.max(0, vv.offsetTop), bottom: Math.max(0, H - vv.offsetTop - vv.height) };
+    if (hid.bottom < 40 && performance.now() - kbOpened < 1000) return; // it may still be on its way
+    if (hid.bottom >= 40) {
+      kbCover[shapeKey()] = hid;
+      try { localStorage.setItem(KB_KEY, JSON.stringify(kbCover)); } catch {}
+    }
+  }
+  const a = screen.area.getBoundingClientRect();
+  const top = Math.max(a.top, hid.top), bottom = Math.min(a.bottom, H - hid.bottom);
+  const covered = a.bottom - bottom > Math.max(12, a.height * 0.04) || top - a.top > 4;
+  screen.setFit(covered ? { x: 0, y: top - a.top, w: a.width, h: Math.max(60, bottom - top) } : null);
+  placeIOSBar();
+  if (!guess && !kbLogged && performance.now() - kbOpened > 1000) {
+    kbLogged = true;
+    remoteLog('info', [`iPhone keyboard: page ${app.clientWidth}×${H} window ${innerWidth}×${innerHeight} ` +
+      `visible ${Math.round(vv.width)}×${Math.round(vv.height)} from ${Math.round(vv.offsetTop)} → ` +
+      `screen ${Math.round(screen.rect.w)}×${Math.round(screen.rect.h)}${covered ? '' : ' (not covered)'}`]);
+  }
+}
+vv?.addEventListener('resize', () => { if (typing()) fitAboveKeyboard(); });
+vv?.addEventListener('scroll', () => { if (typing()) fitAboveKeyboard(); });
+
+/** The "Typing with the iPhone keyboard · Done" bar: beside the screen when it shrank, else on top. */
+function placeIOSBar() {
+  const f = screen.fit, s = iosBar.style;
+  const a = screen.area.getBoundingClientRect(), p = app.getBoundingClientRect(), r = screen.rect;
+  const gap = f ? a.width - (r.x + r.w) : 0;
+  iosBar.classList.toggle('side', gap >= 128);
+  if (gap >= 128) {
+    const w = Math.min(gap - 16, 180);
+    s.width = `${w}px`;
+    s.left = `${a.left - p.left + r.x + r.w + (gap - w) / 2}px`;
+  } else {
+    s.width = s.left = '';
+  }
+  s.top = f ? `${Math.max(a.top - p.top + f.y + 8, safeArea().top)}px` : '';
+}
 iosInput.addEventListener('beforeinput', (e) => {
   const t = e.inputType || '';
   if (t === 'insertText' || t === 'insertReplacementText' || t === 'insertFromPaste' || t === 'insertFromDictation') {

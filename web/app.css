@@ -55,9 +55,15 @@ html { touch-action: none; }
    status bar's height (793 of 852 pt on a 15 Pro) and draws nothing below it, but only
    while the page is shorter than the screen. So make the page as tall as the screen;
    once iOS hands over the full viewport, 100% is that height and this changes nothing.
-   The min() keeps an opaque status bar (top inset 0) from making the page scroll. */
+   The min() keeps an opaque status bar (top inset 0) from making the page scroll.
+   Sideways no status bar sits on top, so the large viewport is the screen's height. Since
+   iOS 27.2 an iPhone Duo held sideways shows its status bar as a strip down one side, kept out
+   of the page, yet still takes its height off (587 of 669 pt). */
 @media (display-mode: standalone) {
   html { min-height: min(100lvh, calc(100% + env(safe-area-inset-top, 0px))); }
+}
+@media (display-mode: standalone) and (orientation: landscape) {
+  html { min-height: 100lvh; }
 }
 
 body {
@@ -784,6 +790,7 @@ button { font: inherit; color: inherit; }
 .card .trail { stroke: rgba(255, 255, 255, .45); stroke-width: 2; stroke-linecap: round; stroke-dasharray: 2 3; fill: none; }
 .card .black .deck { fill: #2b2c2f; } .card .black .k { fill: #0e0e10; } .card .black .pad { fill: #3a3b3f; }
 .card .silver .deck { fill: #d9dbde; } .card .silver .k { fill: #1a1a1c; } .card .silver .pad { fill: #c4c6ca; }
+.card .black .dot { fill: rgba(0, 0, 0, .7); } .card .silver .dot { fill: rgba(0, 0, 0, .35); }
 .card .q { display: flex; align-items: center; gap: 6px; }
 .card .qe { font-size: 24px; line-height: 1; }
 .card .qs { font: 700 20px -apple-system, system-ui, sans-serif; color: #fff; }
@@ -972,6 +979,17 @@ button { font: inherit; color: inherit; }
 }
 #ios-bar[hidden] { display: none; }
 #ios-bar button { border: 0; border-radius: 8px; padding: 5px 12px; background: #0a84ff; font-weight: 600; font-size: 12px; }
+/* The screen shrank above the iPhone keyboard: a little card beside it instead, off the picture. */
+#ios-bar.side {
+  transform: none;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding: 10px;
+  text-align: center;
+  line-height: 1.3;
+}
+#ios-bar.side button { padding: 7px 12px; }
 
 /* ───── Add to Home Screen guide (install.js) ───── */
 #install {

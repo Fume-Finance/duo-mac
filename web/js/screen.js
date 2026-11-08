@@ -29,6 +29,7 @@ export class Screen {
     this.displayPt = [1512, 982];
     this.notch = null;
     this.rect = { x: 0, y: 0, w: 0, h: 0 };
+    this.fit = null;          // the part of the area to show the screen in (above the iPhone keyboard); null: all of it
     this.zoom = { s: 1, x: 0, y: 0 };
     this.cursor = null;
     this.chain = Promise.resolve();
@@ -67,13 +68,41 @@ export class Screen {
     return [Math.round(this.area.clientWidth * dpr), Math.round(this.area.clientHeight * dpr)];
   }
 
+  /** Where in the area the screen goes: the part set by setFit, or all of it. */
+  region() {
+    return this.fit || { x: 0, y: 0, w: this.area.clientWidth, h: this.area.clientHeight };
+  }
+
+  /** Shows the screen in part of the area only (what the iPhone keyboard leaves visible), or in all
+   *  of it again (null), gliding from the old place to the new one as the keyboard slides. */
+  setFit(f) {
+    const near = (a, b) => Math.abs(a - b) < 1;
+    const o = this.fit;
+    if (!f === !o && (!f || (near(f.x, o.x) && near(f.y, o.y) && near(f.w, o.w) && near(f.h, o.h)))) return;
+    const from = { ...this.rect };
+    if (!f !== !o) this.zoom = { s: 1, x: 0, y: 0 }; // the whole screen, unzoomed
+    this.fit = f;
+    this.layout();
+    const to = this.rect, w = this.wrap.style;
+    if (this.zoom.s !== 1 || !from.w || !to.w) return;
+    const k = from.w / to.w;
+    w.transition = 'none';
+    w.transform = `translate(${from.x - k * to.x}px, ${from.y - k * to.y}px) scale(${k})`;
+    this.wrap.getBoundingClientRect(); // start from there
+    w.transition = 'transform .3s cubic-bezier(.2, .8, .2, 1)';
+    w.transform = '';
+    clearTimeout(this.fitTimer);
+    this.fitTimer = setTimeout(() => { w.transition = ''; }, 350);
+  }
+
   layout() {
     const aw = this.area.clientWidth, ah = this.area.clientHeight;
     if (!aw || !ah) return;
     const aspect = this.streamW && this.streamH ? this.streamW / this.streamH : this.displayPt[0] / this.displayPt[1];
-    let w = aw, h = aw / aspect;
-    if (h > ah) { h = ah; w = ah * aspect; }
-    const x = (aw - w) / 2, y = (ah - h) / 2;
+    const f = this.region();
+    let w = f.w, h = f.w / aspect;
+    if (h > f.h) { h = f.h; w = f.h * aspect; }
+    const x = f.x + (f.w - w) / 2, y = f.y + (f.h - h) / 2;
     this.rect = { x, y, w, h };
     const s = this.canvas.style;
     s.left = `${x}px`;
@@ -268,12 +297,11 @@ export class Screen {
   }
 
   clampZoom() {
-    const z = this.zoom, r = this.rect;
-    const aw = this.area.clientWidth, ah = this.area.clientHeight;
+    const z = this.zoom, r = this.rect, f = this.region();
     if (z.s <= 1.001) { z.s = 1; z.x = 0; z.y = 0; return; }
     const cw = r.w * z.s, ch = r.h * z.s;
-    z.x = cw <= aw ? (aw - cw) / 2 - r.x * z.s : Math.min(-r.x * z.s, Math.max(aw - (r.x + r.w) * z.s, z.x));
-    z.y = ch <= ah ? (ah - ch) / 2 - r.y * z.s : Math.min(-r.y * z.s, Math.max(ah - (r.y + r.h) * z.s, z.y));
+    z.x = cw <= f.w ? f.x + (f.w - cw) / 2 - r.x * z.s : Math.min(f.x - r.x * z.s, Math.max(f.x + f.w - (r.x + r.w) * z.s, z.x));
+    z.y = ch <= f.h ? f.y + (f.h - ch) / 2 - r.y * z.s : Math.min(f.y - r.y * z.s, Math.max(f.y + f.h - (r.y + r.h) * z.s, z.y));
   }
 
   applyZoom() {
@@ -283,8 +311,8 @@ export class Screen {
 
   /** Pointer position in screen-area coordinates (unzoomed), or the centre. */
   cursorAnchor() {
-    const r = this.rect, z = this.zoom;
-    if (!this.cursor || !this.streamW) return [this.area.clientWidth / 2, this.area.clientHeight / 2];
+    const r = this.rect, z = this.zoom, f = this.region();
+    if (!this.cursor || !this.streamW) return [f.x + f.w / 2, f.y + f.h / 2];
     const px = r.x + (this.cursor[0] / this.streamW) * r.w, py = r.y + (this.cursor[1] / this.streamH) * r.h;
     return [z.x + z.s * px, z.y + z.s * py];
   }
@@ -292,11 +320,11 @@ export class Screen {
   followCursor() {
     if (!this.cursor) return;
     const [qx, qy] = this.cursorAnchor();
-    const aw = this.area.clientWidth, ah = this.area.clientHeight;
-    const m = Math.min(aw, ah) * 0.16;
+    const f = this.region();
+    const m = Math.min(f.w, f.h) * 0.16;
     let dx = 0, dy = 0;
-    if (qx < m) dx = m - qx; else if (qx > aw - m) dx = aw - m - qx;
-    if (qy < m) dy = m - qy; else if (qy > ah - m) dy = ah - m - qy;
+    if (qx < f.x + m) dx = f.x + m - qx; else if (qx > f.x + f.w - m) dx = f.x + f.w - m - qx;
+    if (qy < f.y + m) dy = f.y + m - qy; else if (qy > f.y + f.h - m) dy = f.y + f.h - m - qy;
     if (dx || dy) this.panBy(dx, dy);
   }
 }

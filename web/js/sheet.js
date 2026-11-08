@@ -124,6 +124,19 @@ function splitSlider() {
 
 const qualityArt = (emoji, blur) => `<span class="q"><span class="qe">${emoji}</span><span class="qs" style="filter:blur(${blur}px)">Aa</span></span>`;
 
+/** The keyboard half: a MacBook's, with margins and speaker grilles, or edge to edge (bigger keys). */
+function keysArt(full) {
+  const n = 10, x0 = full ? 6 : 15, w = full ? 68 : 50, g = full ? 1 : 0.9, kw = (w - (n - 1) * g) / n, kh = full ? 5 : 4.2;
+  let out = `<svg viewBox="0 0 80 50" class="${settings.theme === 'silver' ? 'silver' : 'black'}"><rect x="4" y="3" width="72" height="44" rx="5" class="deck"/>`;
+  for (let r = 0; r < 4; r++) for (let i = 0; i < n; i++) {
+    out += `<rect x="${(x0 + i * (kw + g)).toFixed(2)}" y="${(6 + r * (kh + g)).toFixed(2)}" width="${kw.toFixed(2)}" height="${kh}" rx="0.9" class="k"/>`;
+  }
+  const padTop = 6 + 4 * (kh + g) + 1.5, pw = w * 0.8;
+  out += `<rect x="${(40 - pw / 2).toFixed(2)}" y="${padTop.toFixed(2)}" width="${pw.toFixed(2)}" height="${(44.5 - padTop).toFixed(2)}" rx="2" class="pad"/>`;
+  if (!full) for (const x of [8.5, 69.5]) for (let r = 0; r < 7; r++) for (const dx of [0, 2]) out += `<circle cx="${x + dx}" cy="${7 + r * 3}" r=".6" class="dot"/>`;
+  return out + '</svg>';
+}
+
 function keyboardArt(silver) {
   const rows = [0, 1, 2, 3].map((r) => [...Array(10)].map((_, i) => `<rect x="${9 + i * 6.3}" y="${7 + r * 6.3}" width="5.3" height="5.3" rx="1" class="k"/>`).join('')).join('');
   return `<svg viewBox="0 0 80 50" class="${silver ? 'silver' : 'black'}"><rect x="4" y="3" width="72" height="44" rx="5" class="deck"/>${rows}
@@ -207,7 +220,7 @@ export class Sheet {
         const v = b.dataset.val;
         setSetting(key, v === 'true' ? true : v === 'false' ? false : v);
         for (const x of b.parentElement.children) x.classList.toggle('on', x === b);
-        if (key === 'layout' || key === 'screenTouch' || key === 'foldCloses') {
+        if (key === 'layout' || key === 'screenTouch' || key === 'foldCloses' || key === 'keyboardSize') {
           // Which of the options below apply depends on the layout.
           const p = this.el.querySelector('.panel'), y = p?.scrollTop || 0;
           this.render();
@@ -304,6 +317,8 @@ export class Sheet {
     ${settings.sounds ? slider('volume', 'Volume', 0, 1, 0.05, FMT.volume) : ''}
     ${toggle('haptics', 'Haptic taps', 'Keys and trackpad taps, felt as you lift your finger')}
     ${toggle('fnStandard', 'Use F1, F2, etc. as standard function keys')}
+    ${settings.layout === 'laptop' ? cards('keyboardSize', 'Size', [['full', 'Edge to edge', keysArt(true)], ['macbook', 'MacBook', keysArt(false)]],
+      settings.keyboardSize === 'macbook' ? 'Margins and speaker grilles, like a MacBook' : 'As wide as the iPhone: bigger keys and trackpad') : ''}
     <div class="item"><span class="l">iPhone keyboard<small>Dictation, emoji, accents. Or hold the 🌐 fn key.</small></span>
       <button type="button" class="btn" data-act="iosKeyboard">Type…</button></div>
   </div></div>

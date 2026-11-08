@@ -13,6 +13,7 @@ export const DEFAULTS = {
   fnStandard: false,    // top row sends F1…F12 instead of brightness/volume
   quality: 'balanced',  // fast | balanced | sharp
   theme: 'spaceblack',  // spaceblack | silver
+  keyboardSize: 'full', // Laptop layout: full (edge to edge, bigger keys) | macbook (margins, speaker grilles)
   hinge: null,          // screen share of the height (the fold); null = automatic for this phone
   hingePad: null,       // the same for the Trackpad layout, kept separately
   stats: false,
