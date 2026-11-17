@@ -33,14 +33,15 @@ export const sound = {
   /** The shared audio context (also plays the Mac's sound, js/speaker.js). */
   context() { return audio(); },
 
-  click(kind = 'key') {
-    if (!settings.sounds) return;
+  /** from: 'keys' (the keyboard: Key clicks) or 'pad' (trackpad, shortcut buttons: Click sounds). */
+  click(kind = 'key', from = 'keys') {
+    if (!(from === 'pad' ? settings.padSounds : settings.sounds)) return;
     const c = audio();
     if (!c) return;
     if (c.state !== 'running') {
       // Suspended (e.g. after the passkey sheet): resume, and still click if that's quick.
       const asked = performance.now();
-      c.resume().then(() => { if (performance.now() - asked < 150) this.click(kind); }).catch(() => {});
+      c.resume().then(() => { if (performance.now() - asked < 150) this.click(kind, from); }).catch(() => {});
       return;
     }
     const t = c.currentTime + 0.002;

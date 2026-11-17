@@ -146,7 +146,7 @@ const pointer = {
     if (!down) keyboard.consumeLatched();
   },
   /** A finger held still on a trackpad: sliding now drags. Glass doesn't click, so a sound says so. */
-  held() { sound.click('mod'); haptic(); },
+  held() { sound.click('mod', 'pad'); haptic(); },
 };
 
 // ───── Keyboard ─────
@@ -237,7 +237,7 @@ function tapCombo(code, mods = 0) {
   keyboard.consumeLatched();
 }
 function runKey(a) {
-  sound.click('key');
+  sound.click('key', 'pad');
   haptic();
   if (a.act === 'dictate') dictation.toggle();
   else if (a.act === 'screenshot') startShot();
@@ -1771,7 +1771,7 @@ shotEl.addEventListener('pointerup', (e) => {
     r = { x: Math.min(x1, x2), y: Math.min(y1, y2), w: Math.abs(x2 - x1), h: Math.abs(y2 - y1) };
     if (r.w < 0.005 || r.h < 0.005) return; // dragged off the screen
   }
-  sound.click('key');
+  sound.click('key', 'pad');
   haptic('medium');
   sendNow({ t: 'shot', ...r });
 });

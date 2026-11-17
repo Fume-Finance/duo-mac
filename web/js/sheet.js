@@ -13,6 +13,7 @@ const I24 = (body) => `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" s
 const SPEAKER_ICON = I24('<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" fill="currentColor" stroke="none"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/>');
 const CHIME_ICON = I24('<path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5" fill="currentColor" stroke="none"/><circle cx="16.5" cy="16" r="2.5" fill="currentColor" stroke="none"/>');
 const STATS_ICON = I24('<path d="M5 19V12M10 19V7M15 19v-5M20 19V9"/>');
+const PAD_ICON = I24('<rect x="3" y="5" width="18" height="14" rx="3"/><path d="M12 15v4"/>');
 const CLICK_ICON = I24('<rect x="3" y="7" width="18" height="11" rx="2"/><path d="M7 11h.5M10.5 11h.5M14 11h.5M8 14.5h8"/>');
 const HAPTIC_ICON = I24('<rect x="8" y="3" width="8" height="18" rx="2"/><path d="M4 9v6M20 9v6"/>');
 const CLIP_ICON = I24('<rect x="6" y="4" width="12" height="17" rx="2"/><path d="M9.5 4V3h5v1M9 10h6M9 14h4"/>');
@@ -308,7 +309,7 @@ export class Sheet {
       if (!key) return;
       if (t.type === 'checkbox') {
         setSetting(key, t.checked);
-        if (key === 'sounds') this.update(this.info); // the volume goes with the clicks
+        if (key === 'sounds' || key === 'padSounds') this.update(this.info); // the volume goes with the clicks
       }
       else if (t.type === 'range') {
         setSetting(key, +t.value);
@@ -388,7 +389,8 @@ export class Sheet {
 
   <div class="group"><h3>Keyboard</h3><div class="box">
     ${iconToggle('sounds', 'Key clicks', '', CLICK_ICON, 'linear-gradient(#8e8e93, #636366)')}
-    ${settings.sounds ? slider('volume', 'Volume', 0, 1, 0.05, FMT.volume) : ''}
+    ${iconToggle('padSounds', 'Trackpad and button clicks', 'The click when you hold to drag, and on the shortcut buttons', PAD_ICON, 'linear-gradient(#8e8e93, #636366)')}
+    ${settings.sounds || settings.padSounds ? slider('volume', 'Volume', 0, 1, 0.05, FMT.volume) : ''}
     ${iconToggle('haptics', 'Haptic taps', 'Keys and trackpad taps', HAPTIC_ICON, 'linear-gradient(#bf5af2, #9b40d0)')}
     ${cards('fnStandard', 'Top row', [['false', 'Mac app keys', topRowArt(false)], ['true', 'F1–F12', topRowArt(true)]], 'fn switches to the other one')}
     ${cards('padButtons', 'Beside the trackpad', [['true', 'Shortcut buttons', padArt(true)], ['false', 'Just the trackpad', padArt(false)]], 'Trackpad layout: copy, paste, undo, redo, dictate, return')}

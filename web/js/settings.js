@@ -7,7 +7,8 @@ export const DEFAULTS = {
   naturalScroll: true,  // content follows your fingers
   touchscreen: true,    // tap the screen half to click there (Laptop and Trackpad layouts)
   screenTouch: 'touch', // Screen only: touch (tap where you want to click) | trackpad (the whole screen is one)
-  sounds: true,
+  sounds: true,         // key clicks (the keyboard)
+  padSounds: true,      // click sounds for the trackpad's drag and the shortcut buttons
   volume: 0.55,
   haptics: true,
   padButtons: true,     // copy, paste, undo, dictate, return beside the trackpad (when there's room)
