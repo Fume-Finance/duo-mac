@@ -31,6 +31,8 @@
 	<key>WKAppBoundDomains</key>
 	<array>
 		<string>$(DUO_MAC_HOST)</string>
+		<!-- Your other Macs on the tailnet (Settings › Macs): any name under it. -->
+		<string>$(DUO_TAILNET)</string>
 	</array>
 	<key>NSAppTransportSecurity</key>
 	<dict>

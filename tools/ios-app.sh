@@ -138,7 +138,7 @@ DD="$WORK/build"
 build() {
   /usr/bin/xcodebuild -project "$WORK/ios/DuoMac.xcodeproj" -scheme DuoMac -configuration Release \
     -destination "id=$UDID" -derivedDataPath "$DD" -allowProvisioningUpdates -allowProvisioningDeviceRegistration \
-    DEVELOPMENT_TEAM="$TEAM" DUO_MAC_URL="https://$HOST/" DUO_MAC_HOST="$HOST" "$@" > "$WORK/xcodebuild.log" 2>&1
+    DEVELOPMENT_TEAM="$TEAM" DUO_MAC_URL="https://$HOST/" DUO_MAC_HOST="$HOST" DUO_TAILNET="${HOST#*.}" "$@" > "$WORK/xcodebuild.log" 2>&1
 }
 # Right after the old profiles are removed, Xcode can still reach for one of them ("Build input file
 # cannot be found: …mobileprovision"); the next try makes new ones.

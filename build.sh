@@ -52,7 +52,7 @@ if [ -x build/.bin/duo-mac-tailnet ]; then
   mv -f "$INSTALL/.bin/duo-mac-tailnet.new" "$INSTALL/.bin/duo-mac-tailnet"
 fi
 [ -L "$INSTALL/Duo Mac" ] || { rm -f "$INSTALL/Duo Mac"; ln -s ".bin/Duo Mac" "$INSTALL/Duo Mac"; }
-rsync -a --delete web/ "$INSTALL/web/"
+rsync -a --delete --exclude downloads/ web/ "$INSTALL/web/"
 # The Duo Mac Microphone driver: installed into the system by Duo Mac itself (Settings › General),
 # which asks for an administrator password.
 ./tools/make-driver.sh >/dev/null

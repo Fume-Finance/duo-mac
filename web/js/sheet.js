@@ -84,6 +84,18 @@ function dictationRow(w) {
   return cards('dictationEngine', 'Dictation', [['apple', 'Apple · fast', dictArt(false)], ['whisper', 'Whisper · accurate', dictArt(true)]], note);
 }
 
+/** The iPhone app: the Macs it connects to; it opens the one marked until you switch. */
+function macsGroup(m) {
+  const label = (x) => esc(x.name || x.host.split('.')[0]);
+  return `<div class="group"><h3>Macs</h3><div class="box">
+    ${m.list.map((x) => `<div class="item"><span class="l">${label(x)}<small class="mono">${esc(x.host.split('.')[0])}</small></span>
+      ${x.current ? '<span class="state on">In use</span>'
+        : `<button type="button" class="btn blue" data-mac-open="${esc(x.host)}">Switch</button><button type="button" class="btn" data-mac-remove="${esc(x.host)}">Remove</button>`}</div>`).join('')}
+    <div class="item"><span class="l">Add a Mac<small>On that Mac: Duo Mac › Add iPhone…, then scan its QR code. Or type its name on your tailnet.</small></span>
+      <button type="button" class="btn blue" data-act="macScan">Scan…</button><button type="button" class="btn" data-act="macType">Type…</button></div>
+  </div></div>`;
+}
+
 /** The iPhone app's own Tailscale (ios/DuoMac/Tailnet.swift). */
 function tailnetRow(t) {
   const [note, btn] = !t.enabled ? ['Off: the Tailscale app’s VPN is needed away from the Mac’s network.', '<button type="button" class="btn" data-act="tailnetOn">Turn On</button>']
@@ -288,6 +300,10 @@ export class Sheet {
         else this.actions[act]?.();
         return;
       }
+      const mo = e.target.closest('[data-mac-open]');
+      if (mo) return this.actions.macOpen?.(mo.dataset.macOpen);
+      const mr = e.target.closest('[data-mac-remove]');
+      if (mr) return this.actions.macRemove?.(mr.dataset.macRemove);
       const tb = e.target.closest('[data-tool]');
       if (tb) {
         const on = new Set(String(settings.toolButtons).split(',').filter(Boolean));
@@ -393,6 +409,8 @@ export class Sheet {
         ${i.test ? '<br><b style="color:#ffb340">Test pattern mode</b>' : ''}</div>
     </div>
   </div>
+
+  ${i.macs ? macsGroup(i.macs) : ''}
 
   <div class="group"><h3>Trackpad</h3><div class="box">
     ${slider('tracking', 'Tracking speed', 0.4, 3, 0.1, FMT.tracking)}

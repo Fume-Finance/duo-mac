@@ -16,10 +16,8 @@ final class WebViewController: UIViewController {
     private var loginView: SFSafariViewController?
     private var askedToSignIn = false
 
-    static let home: URL? = {
-        guard let s = Bundle.main.object(forInfoDictionaryKey: "DuoMacURL") as? String, !s.isEmpty else { return nil }
-        return URL(string: s)
-    }()
+    /// The Mac it opens (Settings › Macs switches it: Macs.swift).
+    static var home: URL? { Macs.current.flatMap { URL(string: "https://\($0)/") } }
 
     override func loadView() {
         let cfg = WKWebViewConfiguration()
@@ -61,6 +59,7 @@ final class WebViewController: UIViewController {
         super.viewDidLoad()
         bridge.onTailnetLogin = { [weak self] in self?.showTailnetLogin() }
         bridge.presenter = self
+        bridge.onOpenMac = { [weak self] host, url in self?.open(host: host, pairURL: url) }
         Tailnet.shared.onChange = { [weak self] s in self?.tailnetChanged(s) }
         Tailnet.shared.start()
         // Give the app's own Tailscale a moment to come up, so the first load goes through it.
@@ -129,6 +128,16 @@ final class WebViewController: UIViewController {
         bridge.becameActive()
     }
 
+    /// Another Mac: open its page (with a pairing code if it came from its QR code).
+    func open(host: String, pairURL: URL? = nil) {
+        Macs.current = host
+        loadedOnce = true
+        loadedBeforeTailnet = false
+        hideError()
+        let url = pairURL.flatMap { $0.host == host ? $0 : nil } ?? Self.home
+        if let url { web.load(URLRequest(url: url, cachePolicy: .useProtocolCachePolicy, timeoutInterval: 15)) }
+    }
+
     private func load() {
         loadedOnce = true
         loadedBeforeTailnet = Tailnet.enabled && !Tailnet.shared.isRunning
@@ -148,7 +157,9 @@ final class WebViewController: UIViewController {
         box.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         box.backgroundColor = .black
         let title = UILabel()
-        title.text = "Can't reach your Mac"
+        let cur = Macs.current
+        let curName = Macs.list.first { $0.host == cur }.map { $0.name.isEmpty ? String($0.host.prefix { $0 != "." }) : $0.name }
+        title.text = Macs.list.count > 1 ? "Can't reach \(curName ?? "your Mac")" : "Can't reach your Mac"
         title.font = .systemFont(ofSize: 20, weight: .semibold)
         title.textColor = .white
         let body = UILabel()
@@ -162,7 +173,21 @@ final class WebViewController: UIViewController {
         bc.baseBackgroundColor = UIColor(white: 1, alpha: 0.15)
         bc.cornerStyle = .capsule
         let button = UIButton(configuration: bc, primaryAction: UIAction { [weak self] _ in self?.retry() })
-        let stack = UIStackView(arrangedSubviews: [title, body, button])
+        var views: [UIView] = [title, body, button]
+        // Saved another Mac: open that one instead (Settings › Macs, when this one is away).
+        let others = Macs.list.filter { $0.host != cur }
+        if !others.isEmpty {
+            var oc = UIButton.Configuration.plain()
+            oc.title = "Use another Mac…"
+            oc.baseForegroundColor = UIColor(white: 1, alpha: 0.8)
+            let other = UIButton(configuration: oc)
+            other.menu = UIMenu(children: others.map { m in
+                UIAction(title: m.name.isEmpty ? String(m.host.prefix { $0 != "." }) : m.name) { [weak self] _ in self?.open(host: m.host) }
+            })
+            other.showsMenuAsPrimaryAction = true
+            views.append(other)
+        }
+        let stack = UIStackView(arrangedSubviews: views)
         stack.axis = .vertical
         stack.alignment = .center
         stack.spacing = 14

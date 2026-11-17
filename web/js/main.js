@@ -382,6 +382,18 @@ const sheet = new Sheet($('#sheet'), {
     if (navigator.standalone) location.href = `x-safari-${url}`;
     else location.href = url;
   },
+  // The iPhone app's Macs (Settings › Macs).
+  macOpen: (mac) => native?.call({ t: 'mac-open', mac }).catch((e) => showBanner(e?.message || 'Couldn’t open that Mac', 'error', 3000)),
+  macRemove: (mac) => {
+    if (!confirm(`Remove ${mac.split('.')[0]} from this app?`)) return;
+    native?.call({ t: 'mac-remove', mac }).then(refreshMacs).catch(() => {});
+  },
+  macScan: () => native?.call({ t: 'scan-qr' }).then((text) => text && native.call({ t: 'mac-open', mac: text }))
+    .catch((e) => showBanner(e?.message || 'Couldn’t add that Mac', 'error', 3000)),
+  macType: () => {
+    const n = prompt('The Mac’s name on your tailnet, as the Tailscale app lists it (e.g. fabios-imac):');
+    if (n) native?.call({ t: 'mac-open', mac: n }).catch((e) => showBanner(e?.message || 'Couldn’t open that Mac', 'error', 3000));
+  },
   tailnetLogin: () => native?.call({ t: 'tailnet-login' }).catch(() => {}),
   tailnetOn: () => native?.call({ t: 'tailnet-enable', on: true }).catch(() => {}),
   tailnetOff: () => native?.call({ t: 'tailnet-enable', on: false }).catch(() => {}),
@@ -424,13 +436,14 @@ function sheetInfo() {
     displays: cfg?.displays, displayIndex: cfg?.displayIndex, nanoActive: !!cfg?.nano,
     layout: cfg?.keyboard?.layout, connected: link.open, rtt: link.rtt, device, micInstalled: cfg?.mic?.installed, micUpdate: cfg?.mic?.update, micOn: mic.running,
     route: link.open ? link.route : '', localReady: !!link.local, localTrusted, tailnet, whisper: whisperStatus,
-    nanoSizes: cfg?.nanoSizes, fps: lastStats.fps, kbps: lastStats.kbps,
+    nanoSizes: cfg?.nanoSizes, fps: lastStats.fps, kbps: lastStats.kbps, macs: macsInfo,
     path: link.open && link.route === 'tailscale' ? tsPath : null,
   };
 }
 
 function openSheet() {
   refreshWhisper();
+  refreshMacs();
   sheet.update(sheetInfo());
   sheet.open();
   powerKey()?.classList.remove('attn');
@@ -1004,7 +1017,12 @@ function scanPairCode() {
   native.call({ t: 'scan-qr' }).then((text) => {
     if (!text) return;
     let code = '';
-    try { code = new URL(text).searchParams.get('pair') || ''; } catch { code = text; }
+    try {
+      const u = new URL(text);
+      // Another Mac's QR code: add it and open it there (it pairs from the link).
+      if (u.host && u.host !== location.host) return native.call({ t: 'mac-open', mac: text });
+      code = u.searchParams.get('pair') || '';
+    } catch { code = text; }
     code = code.replace(/[^0-9a-z]/gi, '').toUpperCase();
     if (code.length !== 8) return showPairing('That isn’t a Duo Mac pairing code. Scan the one in Add iPhone… on your Mac.');
     pairCode = code;
@@ -1391,6 +1409,7 @@ link = new Link({
       case 'config':
         cfg = m;
         speaker.setMacName(m.mac?.name);
+        if (m.mac?.name) native?.call({ t: 'mac-name', name: m.mac.name }).catch(() => {});
         if (m.local?.hosts) {
           link.setLocal(m.local);
           try { localStorage.setItem(LOCAL_KEY, JSON.stringify(link.local)); } catch {}
@@ -1813,6 +1832,12 @@ function findMacNearby() {
     remoteLog('info', [`found the Mac on the hotspot at ${hosts.join(', ')}`]);
     if (!link.open) link.reconnectNow();
   }).catch(() => {}).finally(() => { finding = false; });
+}
+
+/** The iPhone app's saved Macs, for Settings › Macs. */
+let macsInfo = null;
+function refreshMacs() {
+  native?.call({ t: 'macs' }).then((m) => { macsInfo = m; if (sheet.isOpen) sheet.update(sheetInfo()); }).catch(() => {});
 }
 
 /** Whisper dictation (the iPhone app): get its model ready when chosen, and follow the download

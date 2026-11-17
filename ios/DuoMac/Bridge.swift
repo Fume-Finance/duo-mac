@@ -8,6 +8,7 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
     var video: NativeVideo?
     var onTailnetLogin: (() -> Void)?
     weak var presenter: UIViewController?
+    var onOpenMac: ((String, URL?) -> Void)?
 
     /// Tells the page (Settings › Connection) how the app's own Tailscale is doing.
     func tailnetChanged() {
@@ -152,6 +153,28 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
         case "scan-qr":
             guard let h = presenter else { return replyHandler(nil, "NotAllowedError") }
             QRScanner.scan(from: h.presentedViewController ?? h) { s in replyHandler(s, nil) }
+
+        case "macs":
+            let cur = Macs.current
+            replyHandler(["current": cur ?? "", "suffix": Macs.suffix ?? "",
+                          "list": Macs.list.map { ["host": $0.host, "name": $0.name, "current": $0.host == cur] }], nil)
+
+        case "mac-name": // the page says its Mac's name (from the Mac's config)
+            if let n = m["name"] as? String, !n.isEmpty { Macs.setName(n, for: host) }
+            replyHandler(nil, nil)
+
+        case "mac-open": // switch to a saved Mac, or add one: a name, a host or its pairing link
+            guard let input = m["mac"] as? String, let h = Macs.host(from: input) else {
+                return replyHandler(nil, "That isn’t a Mac on your tailnet.")
+            }
+            Macs.add(h)
+            replyHandler(true, nil)
+            let pair = URL(string: input).flatMap { $0.query?.contains("pair=") == true ? $0 : nil }
+            DispatchQueue.main.async { self.onOpenMac?(h, pair) }
+
+        case "mac-remove":
+            if let h = m["mac"] as? String, h != host { Macs.remove(h) }
+            replyHandler(nil, nil)
 
         case "tailnet":
             replyHandler(Self.tailnetInfo(), nil)
