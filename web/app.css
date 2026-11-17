@@ -345,17 +345,21 @@ html.native-video #screen { visibility: hidden; }
 
 #stats {
   position: absolute;
-  left: 4px;
-  bottom: 4px;
-  padding: 3px 6px;
-  border-radius: 5px;
-  background: rgba(0, 0, 0, .6);
-  font: 10px/1.3 ui-monospace, Menlo, monospace;
-  color: #b8f5c8;
+  left: max(var(--sal), 8px);
+  bottom: max(calc(var(--sab) - 8px), 6px);
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: rgba(32, 32, 36, .72);
+  border: 1px solid rgba(255, 255, 255, .1);
+  font: 10px/1.35 ui-monospace, Menlo, monospace;
+  color: #c9c9cf;
   z-index: 4;
   pointer-events: none;
   white-space: pre;
+  transition: opacity .2s;
 }
+/* Like ⌨︎ and ⚙︎: out of the way while the Mac's pointer is near. */
+#stats.shy { opacity: 0; }
 
 #layout-btn {
   position: absolute;

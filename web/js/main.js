@@ -80,12 +80,18 @@ screen.onLayout = () => macCursor.render();
 // All screen: the ⌨︎ and ⚙︎ buttons sit over the Mac's bottom-right corner (a chat's send or
 // microphone button, the Dock). They step aside while the Mac's pointer is near them.
 const toolsEl = $('#tools');
+// The stats, on the full screen, do the same.
 macCursor.onRender = () => {
-  if (toolsEl.hidden || !app.classList.contains('screen-only') || !macCursor.pos) { toolsEl.classList.remove('shy'); return; }
-  const r = screen.rect, z = screen.zoom, a = screen.area.getBoundingClientRect(), t = toolsEl.getBoundingClientRect();
-  const x = a.left + z.x + z.s * (r.x + macCursor.pos[0] * r.w), y = a.top + z.y + z.s * (r.y + macCursor.pos[1] * r.h);
-  const dx = Math.max(t.left - x, 0, x - t.right), dy = Math.max(t.top - y, 0, y - t.bottom);
-  toolsEl.classList.toggle('shy', Math.hypot(dx, dy) < 110);
+  const onScreen = app.classList.contains('screen-only') && macCursor.pos;
+  const r = screen.rect, z = screen.zoom, a = screen.area.getBoundingClientRect();
+  const x = onScreen ? a.left + z.x + z.s * (r.x + macCursor.pos[0] * r.w) : 0;
+  const y = onScreen ? a.top + z.y + z.s * (r.y + macCursor.pos[1] * r.h) : 0;
+  const near = (el) => {
+    const t = el.getBoundingClientRect();
+    return Math.hypot(Math.max(t.left - x, 0, x - t.right), Math.max(t.top - y, 0, y - t.bottom)) < 110;
+  };
+  toolsEl.classList.toggle('shy', !!onScreen && !toolsEl.hidden && near(toolsEl));
+  statsEl.classList.toggle('shy', !!onScreen && !statsEl.hidden && statsEl.parentElement === screen.area && near(statsEl));
 };
 
 // ───── Input batching ─────
