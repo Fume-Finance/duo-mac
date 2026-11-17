@@ -148,10 +148,14 @@ final class Session {
     private var canSend: Bool {
         let n = outstanding.count
         if n < 2 { return true }
-        if n >= (congested ? 4 : 12) { return false }
+        if n >= (congested ? 4 : maxInFlight) { return false }
         return outstanding.values.reduce(0) { $0 + $1.bytes } < Int(window)
     }
     private var window = 64_000.0             // bytes allowed in flight
+    /// Frames in flight on a clear link: 12, or more on a long round trip (roaming 5G through a far
+    /// relay, ~0.45 s), so the picture keeps moving at up to ~60 fps instead of ~25. The delay before a
+    /// touch shows stays what the route makes it; the bytes window and the congestion check still apply.
+    private var maxInFlight: Int { minRtt.isFinite ? max(12, min(40, Int(minRtt * 70))) : 12 }
     private var lastCut = Date.distantPast
     private var resynced = false              // already resynced during the current silence
     private var lastSendAt = Date.distantPast
