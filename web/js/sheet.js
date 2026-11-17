@@ -379,7 +379,13 @@ export class Sheet {
     this.info = info;
     if (this.isOpen) {
       const scroll = this.el.querySelector('.panel')?.scrollTop || 0;
+      // Keep the pictures already shown (decoding them again on every refresh made them flicker).
+      const pics = new Map([...this.el.querySelectorAll('img')].map((im) => [im.getAttribute('src'), im]));
       this.render();
+      for (const im of this.el.querySelectorAll('img')) {
+        const old = pics.get(im.getAttribute('src'));
+        if (old) { im.replaceWith(old); pics.delete(old.getAttribute('src')); }
+      }
       const p = this.el.querySelector('.panel');
       if (p) p.scrollTop = scroll;
     }
@@ -411,7 +417,7 @@ export class Sheet {
         ? { note: 'Set up. Used by itself whenever this iPhone and the Mac are on the same Wi-Fi, or the Mac is on this iPhone’s hotspot.', state: '<span class="state">Not in use</span>' }
         : { note: 'Connects straight to the Mac when you’re on the same network (or it’s on your hotspot), once this iPhone trusts it. One-time setup: install the profile, then Settings › General › About › Certificate Trust Settings › turn on Duo Mac.',
             state: '<button type="button" class="btn" data-act="localSetup">Set up…</button>' };
-    this.el.innerHTML = `
+    const html = `
 <div class="panel">
   <header><h2>Settings</h2><button type="button" class="x" data-act="close" aria-label="Close settings"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button></header>
   <div class="about">
@@ -506,5 +512,9 @@ export class Sheet {
 
   ${gestures()}
 </div>`;
+    // Nothing changed (the connection's updates come often): leave it as it is, so nothing blinks.
+    if (html === this.html && this.el.firstElementChild) return;
+    this.html = html;
+    this.el.innerHTML = html;
   }
 }
