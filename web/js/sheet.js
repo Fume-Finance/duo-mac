@@ -53,6 +53,13 @@ function tapArt(on) {
       : '<circle cx="42" cy="24" r="4.5" class="tip" opacity=".35"/><path d="M34 32 50 16" class="cross"/>'}</svg>`;
 }
 
+/** A click-sound switch; while it's on, the volume slider right under it, in the same row. */
+function soundToggle(key, label, note, icon, color) {
+  const vol = settings[key] ? `<div class="vol-row"><span class="vol-ico">${I24('<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" fill="currentColor" stroke="none"/><path d="M15.5 9a4 4 0 0 1 0 6"/>')}</span>
+    <input type="range" data-k="volume" min="0" max="1" step="0.05" value="${settings.volume}"><span class="val" data-v="volume">${FMT.volume(settings.volume)}</span></div>` : '';
+  return iconToggle(key, label, note, icon, color).replace('<div class="item icon-item">', '<div class="item icon-item stack">').replace(/<\/div>$/, `${vol}</div>`);
+}
+
 /** Full screen: which buttons show next to the settings one (which always does). Tap to turn each on or off. */
 const TOOL_BUTTONS = [['copy', 'Copy'], ['paste', 'Paste'], ['undo', 'Undo'], ['redo', 'Redo'], ['screenshot', 'Screenshot'], ['dictate', 'Dictate'], ['keyboard', 'Keyboard']];
 function toolButtonsRow() {
@@ -385,16 +392,8 @@ export class Sheet {
     ${slider('tracking', 'Tracking speed', 0.4, 3, 0.1, FMT.tracking)}
     ${slider('scrollSpeed', 'Scrolling speed', 0.4, 3, 0.1, FMT.scrollSpeed)}
     ${cards('naturalScroll', 'Scroll direction', [['true', 'Natural', scrollArt(true)], ['false', 'Inverted', scrollArt(false)]], 'Swipe up on the trackpad and…')}
-  </div></div>
-
-  <div class="group"><h3>Keyboard</h3><div class="box">
-    ${iconToggle('sounds', 'Key clicks', '', CLICK_ICON, 'linear-gradient(#8e8e93, #636366)')}
-    ${iconToggle('padSounds', 'Trackpad and button clicks', 'The click when you hold to drag, and on the shortcut buttons', PAD_ICON, 'linear-gradient(#8e8e93, #636366)')}
-    ${settings.sounds || settings.padSounds ? slider('volume', 'Volume', 0, 1, 0.05, FMT.volume) : ''}
+    ${soundToggle('padSounds', 'Trackpad and button clicks', 'The click when you hold to drag, and on the shortcut buttons', PAD_ICON, 'linear-gradient(#8e8e93, #636366)')}
     ${iconToggle('haptics', 'Haptic taps', 'Keys and trackpad taps', HAPTIC_ICON, 'linear-gradient(#bf5af2, #9b40d0)')}
-    ${cards('fnStandard', 'Top row', [['false', 'Mac app keys', topRowArt(false)], ['true', 'F1–F12', topRowArt(true)]], 'fn switches to the other one')}
-    ${cards('padButtons', 'Beside the trackpad', [['true', 'Shortcut buttons', padArt(true)], ['false', 'Just the trackpad', padArt(false)]], 'Trackpad layout: copy, paste, undo, redo, dictate, return')}
-    ${toolButtonsRow()}
   </div></div>
 
   <div class="group"><h3>Sound</h3><div class="box">
@@ -420,6 +419,12 @@ export class Sheet {
     ${native ? iconToggle('clipSync', 'Shared clipboard', 'Copy on the Mac, paste on the iPhone, and back. Text and pictures.', CLIP_ICON, 'linear-gradient(#ffd60a, #ff9f0a)') : ''}
     ${cards('layout', 'Layout', [['laptop', 'Laptop', duoArt(0.5)], ['trackpad', 'Trackpad', duoArt(0.5, true)], ['screen', 'Screen only', duoArt(1)]],
       `${{ laptop: 'Keyboard and trackpad below the screen.', trackpad: 'Just a big trackpad below the screen. Tap a text field, or ⌨︎, to type.', screen: 'All screen. Tap a text field, or ⌨︎, to type.' }[settings.layout] || ''} With the iPhone upright. Turned sideways${settings.seenDuo ? ' or folded' : ''}, it’s all screen and the whole screen is a trackpad.`)}
+    ${settings.layout === 'laptop' ? `
+      ${cards('fnStandard', 'Keyboard’s top row', [['false', 'Mac app keys', topRowArt(false)], ['true', 'F1–F12', topRowArt(true)]], 'fn switches to the other one')}
+      ${soundToggle('sounds', 'Key clicks', '', CLICK_ICON, 'linear-gradient(#8e8e93, #636366)')}` : ''}
+    ${settings.layout === 'trackpad'
+      ? cards('padButtons', 'Beside the trackpad', [['true', 'Shortcut buttons', padArt(true)], ['false', 'Just the trackpad', padArt(false)]], 'Copy, paste, undo, redo, dictate, return')
+      : ''}
     ${settings.layout === 'screen'
       ? cards('screenTouch', 'Touching the screen', [['touch', 'Touch screen', touchArt(false)], ['trackpad', 'Trackpad', touchArt(true)]],
         settings.screenTouch === 'trackpad'
@@ -432,6 +437,10 @@ export class Sheet {
       settings.foldCloses ? 'Shows a closed MacBook and lets the Mac sleep.' : 'All screen, and the whole screen is a trackpad.') : ''}
     ${iconToggle('chime', 'Startup chime', 'The Mac’s chime when it comes on', CHIME_ICON, 'linear-gradient(#ff6482, #ff375f)')}
     ${iconToggle('stats', 'Show stats', `<span class="stat-pill">${i.connected ? `${i.fps ?? 0} fps · ${i.kbps ?? 0} KB/s · ${Math.round(i.rtt || 0)} ms` : 'fps · KB/s · ms'}</span>`, STATS_ICON, 'linear-gradient(#30d158, #248a3d)')}
+  </div></div>
+
+  <div class="group"><h3>Full screen</h3><div class="box">
+    ${toolButtonsRow()}
   </div></div>
 
   ${i.device ? `<div class="group"><h3>Security</h3><div class="box">
