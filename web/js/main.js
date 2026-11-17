@@ -5,7 +5,7 @@ import { loadDevice, saveDevice, forgetDevice, deviceName, passkeysAvailable, cr
 import { Screen, LidTouch } from './screen.js';
 import { Keyboard, MOD } from './keyboard.js';
 import { Trackpad } from './trackpad.js';
-import { Sheet } from './sheet.js';
+import { Sheet, setAutoSplit } from './sheet.js';
 import { sound } from './sound.js';
 import { haptic, tapHaptic, addHapticSwitch } from './haptics.js';
 import { native } from './native.js';
@@ -359,7 +359,7 @@ $('#tool-kb')?.addEventListener('click', () => openIOSKeyboard());
 $('#tool-set')?.addEventListener('click', () => (sheet.isOpen ? sheet.close() : openSheet()));
 
 // Screen only: the screen is touched where you point (LidTouch), or is one big trackpad.
-const screenIsPad = () => { const v = view(); return v.layout === 'screen' && v.screenTouch === 'trackpad'; };
+const screenIsPad = () => { const v = view(); return (v.layout === 'screen' || v.layout === 'keyboard') && v.screenTouch === 'trackpad'; };
 const lidTouch = new LidTouch($('#screen-area'), screen, {
   ...pointer, scroll: scrollMac, scrollEnd, swipe3: swipeMac, probe: probeText, tapped: tappedText, enabled: () => !screenIsPad(),
   screenOnly: () => view().layout === 'screen',
@@ -486,13 +486,27 @@ function safeArea() {
 let sideways = false, foldedOpen = false;
 function view() {
   if (sideways || foldedOpen) return { layout: 'screen', screenTouch: 'trackpad' };
+  // Keyboard layout: no trackpad below, so the screen is one.
+  if (settings.layout === 'keyboard') return { layout: 'keyboard', screenTouch: 'trackpad' };
   return { layout: settings.layout, screenTouch: settings.screenTouch };
 }
 
+/** Keyboard layout, automatic: the screen gets everything but what an edge-to-edge keyboard needs. */
+function keyboardSplit() {
+  const H = app.clientHeight || innerHeight, W = innerWidth;
+  const u = (W - 6) / 15.6, deckH = u * KB_UNITS + Math.max(9, H * 0.035) + Math.max(6, safeArea().bottom * 0.75) + 4;
+  return Math.max(0.4, Math.min(0.8, 1 - deckH / H));
+}
+setAutoSplit(keyboardSplit);
+// The keyboard's height in key units: 5 rows + the top row (0.8) + gaps and the well around them.
+const KB_UNITS = 6.54;
+
 /** Screen share of the height: the setting, or automatic (more screen on tall, non-folding phones). */
 function split() {
-  const own = view().layout === 'trackpad' ? settings.hingePad : settings.hinge; // each layout keeps its own
+  const l = view().layout;
+  const own = l === 'trackpad' ? settings.hingePad : l === 'keyboard' ? settings.hingeKb : settings.hinge; // each layout keeps its own
   if (own) return own;
+  if (l === 'keyboard') return keyboardSplit();
   // A folded foldable can say where the fold is (Viewport Segments API; behind a flag in Safari 27.1).
   const seg = window.viewport?.segments;
   if (seg?.length === 2 && seg[0].height < innerHeight * 0.9) return (seg[0].y + seg[0].height) / innerHeight;
@@ -514,7 +528,7 @@ function layout() {
   const padOnly = v.layout === 'trackpad';
   app.classList.toggle('screen-only', screenOnly);
   app.classList.toggle('pad-only', padOnly);
-  $('#tools').hidden = v.layout === 'laptop';
+  $('#tools').hidden = v.layout === 'laptop' || v.layout === 'keyboard';
   // Full screen: the buttons in a row along the bottom (next to the stats), or, where the row
   // doesn't fit (folded upright), in a column at the right edge.
   const nButtons = toolsEl.querySelectorAll('button:not([hidden])').length;
@@ -613,7 +627,9 @@ function layoutDeck() {
   const sa = safeArea();
   const sab = sa.bottom, sal = sa.left, sar = sa.right;
   // Edge to edge: the keyboard as wide as the phone (bigger keys), no MacBook margins or grilles.
-  const wide = view().layout === 'laptop' && settings.keyboardSize !== 'macbook';
+  const wide = view().layout === 'laptop' || view().layout === 'keyboard';
+  const kbOnly = view().layout === 'keyboard';
+  $('#padzone').style.display = kbOnly ? 'none' : '';
   const padX = (wide ? 3 : Math.max(8, W * 0.025)) + Math.max(sal, sar);
   const padTop = Math.max(9, H * 0.035);
   const padBot = Math.max(6, sab * 0.75); // just clear of the home indicator, like a tab bar
@@ -634,9 +650,9 @@ function layoutDeck() {
 
   // Keyboard: 15.6u wide × 6.3u tall (keys + well); leave at least ~38% of the height for the trackpad
   // (~34% edge to edge, where it fills the width even when the height is what limits the keys).
-  let u = Math.min(aw / 15.6, (ah * (wide ? 0.64 : 0.6)) / 6.3);
+  let u = Math.min(aw / 15.6, (ah * (kbOnly ? 1 : wide ? 0.64 : 0.6)) / KB_UNITS);
   u = Math.max(12, Math.floor(u * 4) / 4);
-  const kbW = wide ? aw : u * 15.6, kbH = u * 6.3;
+  const kbW = wide ? aw : u * 15.6, kbH = u * KB_UNITS;
   const kbX = (W - kbW) / 2, kbY = padTop;
   const kb = $('#keyboard');
   kb.style.setProperty('--u', `${u}px`);
@@ -694,8 +710,8 @@ onSetting((k, v) => {
   if (k === 'theme') applyTheme();
   if (k === 'foldCloses') layout();
   if (k === 'screenTouch' || k === 'layout') { lidTouch.reset(); screenPad.reset(); }
-  if (k === 'hinge' || k === 'hingePad' || k === 'layout' || k === 'notch' || k === 'topEdge' || k === 'haptics' || k === 'keyboardSize') layout();
-  if ((k === 'hinge' || k === 'hingePad' || k === 'topEdge' || k === 'layout') && settings.macDisplay === 'nano') {
+  if (k === 'hinge' || k === 'hingePad' || k === 'hingeKb' || k === 'layout' || k === 'notch' || k === 'topEdge' || k === 'haptics' || k === 'keyboardSize') layout();
+  if ((k === 'hinge' || k === 'hingePad' || k === 'hingeKb' || k === 'topEdge' || k === 'layout') && settings.macDisplay === 'nano') {
     // Reshape the Mac's Duo display to the new screen area once the slider settles.
     clearTimeout(hingeTimer);
     hingeTimer = setTimeout(() => {
@@ -1203,7 +1219,7 @@ let prefsRestored = false;
 
 function onAuthed(m) {
   if (freshInstall && !prefsRestored && m.prefs && typeof m.prefs === 'object') {
-    for (const [k, v] of Object.entries(upgrade({ ...m.prefs }))) if (k in DEFAULTS && typeof v === typeof DEFAULTS[k] || k === 'hinge' || k === 'hingePad') setSetting(k, v);
+    for (const [k, v] of Object.entries(upgrade({ ...m.prefs }))) if (k in DEFAULTS && typeof v === typeof DEFAULTS[k] || k === 'hinge' || k === 'hingePad' || k === 'hingeKb') setSetting(k, v);
   }
   prefsRestored = true;
   authed = true;

@@ -170,7 +170,7 @@ const topArt = (full) => `<svg viewBox="0 0 80 50"><rect x="4" y="3" width="72" 
   <text x="58.5" y="12.2" class="clock" text-anchor="end">9:41</text><circle cx="66.5" cy="10" r="3.3" class="ring"/></svg>`;
 
 /** An unfolded Duo: the Mac's screen on top (menu bar, a window, the Dock), then keyboard and trackpad. */
-function duoArt(share, padOnly = false) {
+function duoArt(share, padOnly = false) { // padOnly: true = Trackpad layout, 'kb' = Keyboard layout
   const X = 3, Y = 2, W = 40, H = 70, sh = Math.round(H * share);
   let out = `<svg viewBox="0 0 46 74" class="duo-art"><rect x="${X}" y="${Y}" width="${W}" height="${H}" rx="5" class="frame"/>`;
   // screen
@@ -182,26 +182,31 @@ function duoArt(share, padOnly = false) {
   if (share < 1) {
     // fold, keyboard rows, trackpad
     out += `<line x1="${X}" x2="${X + W}" y1="${Y + sh}" y2="${Y + sh}" class="fold"/>`;
-    const kTop = Y + sh + 2.5, kH = padOnly ? -1.5 : (H - sh) * 0.55, rows = Math.max(2, Math.min(5, Math.round(kH / 3.4)));
+    const kbOnly = padOnly === 'kb';
+    const kTop = Y + sh + 2.5, kH = kbOnly ? H - sh - 5 : padOnly ? -1.5 : (H - sh) * 0.55, rows = Math.max(2, Math.min(5, Math.round(kH / 3.4)));
     const rh = kH / rows;
-    if (!padOnly) for (let r = 0; r < rows; r++) for (let i = 0; i < 8; i++) {
+    if (!padOnly || kbOnly) for (let r = 0; r < rows; r++) for (let i = 0; i < 8; i++) {
       out += `<rect x="${X + 3 + i * 4.3}" y="${(kTop + r * rh).toFixed(1)}" width="3.5" height="${(rh - 0.9).toFixed(1)}" rx="0.6" class="k"/>`;
     }
     const tTop = kTop + kH + 1.5, tH = Y + H - 2.5 - tTop;
     // Trackpad layout: the pad fills the half; laptop: a MacBook-ish pad under the keys.
-    if (tH > 3) out += padOnly
+    if (tH > 3 && !kbOnly) out += padOnly
       ? `<rect x="${X + 3}" y="${tTop.toFixed(1)}" width="${W - 6}" height="${tH.toFixed(1)}" rx="2" class="pad"/>`
       : `<rect x="${X + 10}" y="${tTop.toFixed(1)}" width="${W - 20}" height="${tH.toFixed(1)}" rx="1.4" class="pad"/>`;
   }
   return out + '</svg>';
 }
 
+/** The Keyboard layout's automatic split (main.js sets it: just enough room for the keys). */
+export let autoSplit = null;
+export function setAutoSplit(f) { autoSplit = f; }
+
 function splitSlider() {
   // Laptop and Trackpad layouts each remember their own split.
-  const key = settings.layout === 'trackpad' ? 'hingePad' : 'hinge';
-  const v = settings[key] ?? (innerHeight / innerWidth > 1.8 ? 0.56 : 0.5);
+  const key = { trackpad: 'hingePad', keyboard: 'hingeKb' }[settings.layout] || 'hinge';
+  const v = settings[key] ?? autoSplit?.() ?? (innerHeight / innerWidth > 1.8 ? 0.56 : 0.5);
   // Right to left, so the side with more screen is on the left, like its picture.
-  const pad = settings.layout === 'trackpad', what = pad ? 'trackpad' : 'keyboard';
+  const pad = settings.layout === 'trackpad' ? true : settings.layout === 'keyboard' ? 'kb' : false, what = pad === true ? 'trackpad' : 'keyboard';
   return `<div class="item split-item"><span class="l">Screen / ${what} split<small>On a foldable, match it to the fold</small></span>
     <div class="split"><figure>${duoArt(0.72, pad)}<figcaption>More screen</figcaption></figure>
       <div class="split-mid"><input type="range" dir="rtl" data-k="${key}" min="0.25" max="0.75" step="0.005" value="${v}">
@@ -267,6 +272,7 @@ const FMT = {
   volume: (v) => `${Math.round(v * 100)}%`,
   hinge: (v) => `${Math.round(v * 100)}%`,
   hingePad: (v) => `${Math.round(v * 100)}%`,
+  hingeKb: (v) => `${Math.round(v * 100)}%`,
 };
 
 export class Sheet {
@@ -417,9 +423,9 @@ export class Sheet {
     ${displays}
     ${cards('quality', 'Quality', [['fast', 'Fast', qualityArt('🐇', 1.6)], ['balanced', 'Balanced', qualityArt('🐈', 0.6)], ['sharp', 'Sharp', qualityArt('🐌', 0)]], 'Faster and softer, or slower and crisper')}
     ${native ? iconToggle('clipSync', 'Shared clipboard', 'Copy on the Mac, paste on the iPhone, and back. Text and pictures.', CLIP_ICON, 'linear-gradient(#ffd60a, #ff9f0a)') : ''}
-    ${cards('layout', 'Layout', [['laptop', 'Laptop', duoArt(0.5)], ['trackpad', 'Trackpad', duoArt(0.5, true)], ['screen', 'Screen only', duoArt(1)]],
-      `${{ laptop: 'Keyboard and trackpad below the screen.', trackpad: 'Just a big trackpad below the screen. Tap a text field, or ⌨︎, to type.', screen: 'All screen. Tap a text field, or ⌨︎, to type.' }[settings.layout] || ''} With the iPhone upright. Turned sideways${settings.seenDuo ? ' or folded' : ''}, it’s all screen and the whole screen is a trackpad.`)}
-    ${settings.layout === 'laptop' ? `
+    ${cards('layout', 'Layout', [['laptop', 'Laptop', duoArt(0.5)], ['keyboard', 'Keyboard', duoArt(0.64, 'kb')], ['trackpad', 'Trackpad', duoArt(0.5, true)], ['screen', 'Screen only', duoArt(1)]],
+      `${{ laptop: 'Keyboard and trackpad below the screen.', keyboard: 'Just the keyboard below the screen; the screen is the trackpad.', trackpad: 'Just a big trackpad below the screen. Tap a text field, or ⌨︎, to type.', screen: 'All screen. Tap a text field, or ⌨︎, to type.' }[settings.layout] || ''} With the iPhone upright. Turned sideways${settings.seenDuo ? ' or folded' : ''}, it’s all screen and the whole screen is a trackpad.`)}
+    ${settings.layout === 'laptop' || settings.layout === 'keyboard' ? `
       ${cards('fnStandard', 'Keyboard’s top row', [['false', 'Mac app keys', topRowArt(false)], ['true', 'F1–F12', topRowArt(true)]], 'fn switches to the other one')}
       ${soundToggle('sounds', 'Key clicks', '', CLICK_ICON, 'linear-gradient(#8e8e93, #636366)')}` : ''}
     ${settings.layout === 'trackpad'

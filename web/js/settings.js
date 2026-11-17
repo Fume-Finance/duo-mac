@@ -19,11 +19,12 @@ export const DEFAULTS = {
   keyboardSize: 'full', // Laptop layout: full (edge to edge, bigger keys) | macbook (margins, speaker grilles)
   hinge: null,          // screen share of the height (the fold); null = automatic for this phone
   hingePad: null,       // the same for the Trackpad layout, kept separately
+  hingeKb: null,        // and for the Keyboard layout (null: just enough room for the keys)
   stats: false,
   notch: false,
   topEdge: 'full',      // iPhone Duo: clear (screen starts below the status bar) | full (runs under it)
   chime: true,
-  layout: 'laptop',     // laptop | screen
+  layout: 'laptop',     // laptop | keyboard (no trackpad: the screen is one) | trackpad | screen
   macDisplay: 'nano',   // nano: a Mac display shaped like this screen (fills it) | mirror: the Mac's own screen
   nanoSize: 'default',  // large (bigger text) | default | more (more space)
   hintSeen: false,

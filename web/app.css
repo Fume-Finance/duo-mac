@@ -585,7 +585,7 @@ html.native-video #screen { visibility: hidden; }
   height: var(--u);
   flex: 0 0 auto;
 }
-.row.fnrow { height: calc(var(--u) * .56); }
+.row.fnrow { height: calc(var(--u) * .8); }
 
 /* Invisible switches under the finger: on iOS, tapping one plays a haptic tick (see haptics.js). */
 .hap {
