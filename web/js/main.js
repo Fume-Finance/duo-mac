@@ -1349,6 +1349,7 @@ link = new Link({
         break;
       case 'config':
         cfg = m;
+        speaker.setMacName(m.mac?.name);
         if (m.local?.hosts) {
           link.setLocal(m.local);
           try { localStorage.setItem(LOCAL_KEY, JSON.stringify(link.local)); } catch {}
