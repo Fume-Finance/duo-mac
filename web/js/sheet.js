@@ -7,10 +7,10 @@ function dictationRow(w) {
   const whisper = settings.dictationEngine === 'whisper';
   const status = !w ? '' : {
     downloading: ` Downloading the model: ${w.pct}%.`, loading: ' Getting the model ready…', ready: ' Ready.',
-    wifi: ' Its model (630 MB) downloads on Wi-Fi; Apple’s is used until then.', failed: ' The model couldn’t be loaded; Apple’s is used.',
+    wifi: '', failed: ' The model couldn’t be loaded; Apple’s is used.',
     idle: '',
   }[w.state] || '';
-  const note = whisper ? `Most accurate, any language (Italian, English…, even mixed); types it all when you stop.${status}`
+  const note = whisper ? `Most accurate, any language (Italian, English…, even mixed); types it all when you stop. Its model is 630 MB, downloaded once.${status}`
     : 'Fast, shows the words as you speak; in the iPhone’s language.';
   return `<div class="item"><span class="l">Dictation<small>${note}</small></span><div class="seg" data-seg="dictationEngine">${
     [['apple', 'Apple'], ['whisper', 'Whisper']].map(([v, t]) => `<button type="button" data-val="${v}" class="${settings.dictationEngine === v ? 'on' : ''}">${t}</button>`).join('')}</div></div>`;

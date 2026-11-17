@@ -1,10 +1,9 @@
 import AVFoundation
-import Network
 import WhisperKit
 
 /// Whisper on the iPhone (WhisperKit, open source, all on the phone): recognizes the language by
 /// itself (English, Italian… even mixed), and is the most accurate. Its model (large-v3 turbo, ~630 MB)
-/// downloads once, on Wi-Fi only; until it's ready, dictation uses Apple's engine (Dictation.swift).
+/// downloads once (Wi-Fi or mobile data); until it's ready, dictation uses Apple's engine (Dictation.swift).
 @MainActor
 final class WhisperEngine {
     static let shared = WhisperEngine()
@@ -29,7 +28,7 @@ final class WhisperEngine {
         if savedFolder != nil { prepare() }
     }
 
-    /// Download (Wi-Fi only) and load, in the background.
+    /// Download and load, in the background.
     func prepare() {
         guard !preparing, kit == nil else { return }
         preparing = true
@@ -38,7 +37,6 @@ final class WhisperEngine {
             do {
                 var folder = savedFolder
                 if folder == nil {
-                    guard await Self.onWiFi() else { state = .waitingForWiFi; return }
                     state = .downloading(0)
                     let f = try await WhisperKit.download(variant: Self.variant) { p in
                         let pct = Int(p.fractionCompleted * 100)
@@ -68,18 +66,6 @@ final class WhisperEngine {
                                       withoutTimestamps: true, chunkingStrategy: .vad)
         let results = try await kit.transcribe(audioArray: samples, decodeOptions: options)
         return results.map(\.text).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    /// Not on mobile data (roaming): the model is big.
-    static func onWiFi() async -> Bool {
-        await withCheckedContinuation { cont in
-            let m = NWPathMonitor()
-            m.pathUpdateHandler = { path in
-                m.cancel()
-                cont.resume(returning: path.status == .satisfied && !path.isExpensive)
-            }
-            m.start(queue: DispatchQueue(label: "duomac.wifi"))
-        }
     }
 }
 
