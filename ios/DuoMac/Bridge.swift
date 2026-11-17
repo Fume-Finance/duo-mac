@@ -88,7 +88,7 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
 
     func becameActive() {
         UIApplication.shared.isIdleTimerDisabled = awake
-        clipboard.check() // copied something in another app meanwhile
+        clipboard.appCameBack() // copied something in another app meanwhile
         for g in taps.values { g.prepare() }
     }
 

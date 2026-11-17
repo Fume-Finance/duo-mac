@@ -1,7 +1,11 @@
 import UIKit
+import UniformTypeIdentifiers
 
 /// The iPhone's half of clipboard sync (helper/…/Clipboard.swift): sets what the Mac copied, and
-/// hands the page what was copied here (when the app comes back to the front, or while it's open).
+/// hands the page what was copied here. Copying on the iPhone happens in other apps, so it's checked
+/// when Duo Mac comes back to the front, not while it's open: a change then is Universal Clipboard
+/// bringing over the Mac's (reading it would make iOS fetch it from the Mac and send it back). What's
+/// set here from the Mac is local to the iPhone, so Universal Clipboard doesn't echo it to the Mac.
 /// Reading another app's copy shows iOS's paste prompt unless Settings › Duo Mac › Paste from Other
 /// Apps is set to Allow.
 final class ClipboardWatch {
@@ -21,16 +25,23 @@ final class ClipboardWatch {
         timer = nil
         guard on else { return }
         if UserDefaults.standard.object(forKey: "clipSeen") == nil { seen = UIPasteboard.general.changeCount }
-        timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.check() }
         check() // copied while away
     }
 
     /// The Mac copied something: put it on this clipboard (not sent back).
     func set(text: String?, image: Data?) {
         let pb = UIPasteboard.general
-        if let text { pb.string = text } else if let image, let img = UIImage(data: image) { pb.image = img } else { return }
+        let local: [UIPasteboard.OptionsKey: Any] = [.localOnly: true]
+        if let text {
+            pb.setItems([[UTType.utf8PlainText.identifier: text]], options: local)
+        } else if let image, UIImage(data: image) != nil {
+            pb.setItems([[UTType.png.identifier: image]], options: local)
+        } else { return }
         seen = pb.changeCount
     }
+
+    /// The app is open again: anything new was copied in another app meanwhile.
+    func appCameBack() { check() }
 
     /// main thread: something new on this clipboard? (changeCount reads without a prompt.)
     func check() {
