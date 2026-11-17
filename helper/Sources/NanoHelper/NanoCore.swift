@@ -989,7 +989,7 @@ final class NanoCore {
             "stream": [size.w, size.h],
             "quality": s.quality.rawValue,
             "display": display,
-            "mac": ["name": mac.computerName, "model": mac.model, "chip": mac.chip,
+            "mac": ["name": mac.computerName, "model": mac.model, "product": mac.product, "chip": mac.chip,
                     "memory": mac.memoryGB, "os": mac.osVersion],
             "keyboard": keymap.json,
             "test": options.testPattern,

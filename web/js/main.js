@@ -1409,7 +1409,7 @@ link = new Link({
       case 'config':
         cfg = m;
         speaker.setMacName(m.mac?.name);
-        if (m.mac?.name) native?.call({ t: 'mac-name', name: m.mac.name }).catch(() => {});
+        if (m.mac?.name) native?.call({ t: 'mac-name', name: m.mac.name, product: m.mac.product }).catch(() => {});
         if (m.local?.hosts) {
           link.setLocal(m.local);
           try { localStorage.setItem(LOCAL_KEY, JSON.stringify(link.local)); } catch {}

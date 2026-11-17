@@ -1523,3 +1523,9 @@ html.native-video #screen { visibility: hidden; }
 @keyframes pv-caret { 50% { opacity: 0; } }
 .pv-dash { color: rgba(255, 255, 255, .4); font-size: 20px; padding: 0 2px; }
 .pv-code.done i { border-color: rgba(48, 209, 88, .8); }
+
+/* Settings › Macs: a small picture of each Mac */
+.item.mac-item { gap: 12px; }
+.item .macpic { flex: none; width: 40px; height: 32px; color: #d7d7de; }
+.item .macpic svg { width: 100%; height: 100%; display: block; }
+.item .macpic .scr { fill: rgba(120, 160, 255, .22); stroke: none; }

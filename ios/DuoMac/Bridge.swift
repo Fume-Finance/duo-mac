@@ -157,10 +157,10 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
         case "macs":
             let cur = Macs.current
             replyHandler(["current": cur ?? "", "suffix": Macs.suffix ?? "",
-                          "list": Macs.list.map { ["host": $0.host, "name": $0.name, "current": $0.host == cur] }], nil)
+                          "list": Macs.list.map { ["host": $0.host, "name": $0.name, "product": $0.product ?? "", "current": $0.host == cur] }], nil)
 
         case "mac-name": // the page says its Mac's name (from the Mac's config)
-            if let n = m["name"] as? String, !n.isEmpty { Macs.setName(n, for: host) }
+            if let n = m["name"] as? String, !n.isEmpty { Macs.setName(n, product: m["product"] as? String, for: host) }
             replyHandler(nil, nil)
 
         case "mac-open": // switch to a saved Mac, or add one: a name, a host or its pairing link

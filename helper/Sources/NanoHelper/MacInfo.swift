@@ -1,10 +1,13 @@
 import Foundation
 import SystemConfiguration
+import IOKit
 
 struct MacInfo {
     let computerName: String
     let localHostName: String
     let model: String
+    /// "MacBook Pro (16-inch, 2021)", "iMac (24-inch, M1, 2021)", "Mac mini (2023)"…
+    let product: String
     let chip: String
     let memoryGB: Int
     let osVersion: String
@@ -16,9 +19,20 @@ struct MacInfo {
         let os = "macOS \(v.majorVersion).\(v.minorVersion)" + (v.patchVersion > 0 ? ".\(v.patchVersion)" : "")
         let mem = Int((Double(ProcessInfo.processInfo.physicalMemory) / 1_073_741_824).rounded())
         return MacInfo(computerName: computer, localHostName: local,
-                       model: sysctlString("hw.model") ?? "Mac",
+                       model: sysctlString("hw.model") ?? "Mac", product: productName() ?? "Mac",
                        chip: sysctlString("machdep.cpu.brand_string") ?? "Apple silicon",
                        memoryGB: mem, osVersion: os)
+    }
+
+    /// The model's name as About This Mac shows it (Apple silicon keeps it in the device tree).
+    static func productName() -> String? {
+        let e = IORegistryEntryFromPath(kIOMainPortDefault, "IODeviceTree:/product")
+        guard e != 0 else { return nil }
+        defer { IOObjectRelease(e) }
+        guard let d = IORegistryEntryCreateCFProperty(e, "product-name" as CFString, kCFAllocatorDefault, 0)?
+                .takeRetainedValue() as? Data else { return nil }
+        let s = String(decoding: d.prefix { $0 != 0 }, as: UTF8.self)
+        return s.isEmpty ? nil : s
     }
 
     static func sysctlString(_ name: String) -> String? {

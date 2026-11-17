@@ -88,12 +88,27 @@ function dictationRow(w) {
 function macsGroup(m) {
   const label = (x) => esc(x.name || x.host.split('.')[0]);
   return `<div class="group"><h3>Macs</h3><div class="box">
-    ${m.list.map((x) => `<div class="item"><span class="l">${label(x)}<small class="mono">${esc(x.host.split('.')[0])}</small></span>
+    ${m.list.map((x) => `<div class="item mac-item"><span class="macpic">${macPicture(x)}</span><span class="l">${label(x)}<small>${esc(x.product || x.host.split('.')[0])}</small></span>
       ${x.current ? '<span class="state on">In use</span>'
         : `<button type="button" class="btn blue" data-mac-open="${esc(x.host)}">Switch</button><button type="button" class="btn" data-mac-remove="${esc(x.host)}">Remove</button>`}</div>`).join('')}
     <div class="item"><span class="l">Add a Mac<small>On that Mac: Duo Mac › Add iPhone…, then scan its QR code. Or type its name on your tailnet.</small></span>
       <button type="button" class="btn blue" data-act="macScan">Scan…</button><button type="button" class="btn" data-act="macType">Type…</button></div>
   </div></div>`;
+}
+
+/** A small picture of the Mac: from its model, else its name ("Fabio's iMac"); a MacBook if neither says. */
+function macPicture(x) {
+  const s = `${x.product || ''} ${x.name || ''} ${x.host}`.toLowerCase();
+  const kind = /imac/.test(s) ? 'imac' : /mini/.test(s) ? 'mini' : /studio/.test(s) ? 'studio'
+    : /mac pro|macpro/.test(s) && !/book/.test(s) ? 'pro' : 'laptop';
+  const p = {
+    laptop: '<rect x="7" y="5" width="26" height="17" rx="2"/><path d="M3 25.5h34l-1.5 2h-31z" fill="currentColor" stroke="none"/><rect x="9.5" y="7.5" width="21" height="12" rx=".5" class="scr"/>',
+    imac: '<rect x="5" y="3" width="30" height="21" rx="2"/><rect x="7" y="5" width="26" height="15" rx=".5" class="scr"/><path d="M16.5 24l-1.2 5h9.4l-1.2-5"/><path d="M13 29.5h14"/>',
+    mini: '<rect x="5" y="16" width="30" height="9" rx="3"/><path d="M8 25.5h24"/><circle cx="30" cy="20.5" r=".9" fill="currentColor" stroke="none"/>',
+    studio: '<rect x="9" y="11" width="22" height="16" rx="3"/><path d="M13 22h3M18 22h1"/><path d="M12 27.5h16"/>',
+    pro: '<rect x="11" y="3" width="18" height="26" rx="2"/><path d="M15 8h10M15 12h10M15 16h10M15 20h10M15 24h10" stroke-dasharray="1.5 1.5"/>',
+  }[kind];
+  return `<svg viewBox="0 0 40 32" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round">${p}</svg>`;
 }
 
 /** The iPhone app's own Tailscale (ios/DuoMac/Tailnet.swift). */
