@@ -1,5 +1,16 @@
 // "System Settings" for the Duo: opened with the gear key (top right of the keyboard, where Touch ID would be).
 import { settings, setSetting } from './settings.js';
+import { native } from './native.js';
+
+/** The iPhone app's own Tailscale (ios/DuoMac/Tailnet.swift). */
+function tailnetRow(t) {
+  const [note, btn] = !t.enabled ? ['Off: the Tailscale app’s VPN is needed away from the Mac’s network.', '<button type="button" class="btn" data-act="tailnetOn">Turn On</button>']
+    : t.state === 'running' ? ['On: reaches the Mac without the Tailscale VPN.', '<button type="button" class="btn" data-act="tailnetOff">Turn Off</button>']
+    : t.state === 'needs-login' ? ['Sign in once, and the Tailscale VPN can stay off.', '<button type="button" class="btn blue" data-act="tailnetLogin">Sign In…</button>']
+    : t.state === 'failed' ? ['Didn’t start. Turn it off and on again.', '<button type="button" class="btn" data-act="tailnetOff">Turn Off</button>']
+    : ['Starting…', ''];
+  return `<div class="item"><span class="l">Tailscale in this app<small>${note}</small></span>${btn}</div>`;
+}
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
@@ -316,7 +327,9 @@ export class Sheet {
     ${toggle('sounds', 'Key clicks')}
     ${settings.sounds ? slider('volume', 'Volume', 0, 1, 0.05, FMT.volume) : ''}
     ${toggle('haptics', 'Haptic taps', 'Keys and trackpad taps, felt as you lift your finger')}
-    ${toggle('fnStandard', 'Use F1, F2, etc. as standard function keys')}
+    ${toggle('fnStandard', 'Top row: F1–F12 instead of the Mac app’s keys', 'fn switches between them')}
+    ${toggle('padButtons', 'Buttons beside the trackpad', 'Copy, paste, undo, dictate and return')}
+    ${toggle('toolKeys', 'Copy, paste, undo, redo on the full screen', 'Folded or sideways, next to ⌨︎ and ⚙︎')}
     ${settings.layout === 'laptop' ? cards('keyboardSize', 'Size', [['full', 'Edge to edge', keysArt(true)], ['macbook', 'MacBook', keysArt(false)]],
       settings.keyboardSize === 'macbook' ? 'Margins and speaker grilles, like a MacBook' : 'As wide as the iPhone: bigger keys and trackpad') : ''}
     <div class="item"><span class="l">iPhone keyboard<small>Dictation, emoji, accents. Or hold the 🌐 fn key.</small></span>
@@ -342,6 +355,8 @@ export class Sheet {
     ${displays}
     ${cards('quality', 'Quality', [['fast', 'Fast', qualityArt('🐇', 1.6)], ['balanced', 'Balanced', qualityArt('🐈', 0.6)], ['sharp', 'Sharp', qualityArt('🐌', 0)]], 'Faster and softer, or slower and crisper')}
     ${toggle('video', 'Video compression', 'H.264: smoother on slow connections, less data. Turn off if the picture looks wrong.')}
+    ${native ? toggle('clipSync', 'Shared clipboard', 'Copy on the Mac, paste on the iPhone, and back. Text and pictures.') : ''}
+    ${native?.video && native.maxFPS > 60 ? toggle('smooth', 'Smooth (120 fps)', 'As smooth as this screen goes. Off: 60 fps, less work for the Mac and less data.') : ''}
     ${cards('layout', 'Layout', [['laptop', 'Laptop', duoArt(0.5)], ['trackpad', 'Trackpad', duoArt(0.5, true)], ['screen', 'Screen only', duoArt(1)]],
       `${{ laptop: 'Keyboard and trackpad below the screen.', trackpad: 'Just a big trackpad below the screen. Tap a text field, or ⌨︎, to type.', screen: 'All screen. Tap a text field, or ⌨︎, to type.' }[settings.layout] || ''} With the iPhone upright. Turned sideways${settings.seenDuo ? ' or folded' : ''}, it’s all screen and the whole screen is a trackpad.`)}
     ${settings.layout === 'screen'
@@ -368,7 +383,7 @@ export class Sheet {
       <button type="button" class="btn" data-act="lock">Lock</button></div>
     <div class="item"><span class="l">${i.device.pin ? 'PIN' : 'Backup PIN'}<small>For when the passkey isn’t available.</small></span>
       <button type="button" class="btn" data-act="changePin">${i.device.pin ? 'Change…' : 'Add…'}</button></div>
-    ${settings.seenDuo ? `<div class="item"><span class="l">Touch ID marker<small>Shows where the Touch ID button is while a passkey is asked for.</small></span>
+    ${settings.seenDuo && !native ? `<div class="item"><span class="l">Touch ID marker<small>Shows where the Touch ID button is while a passkey is asked for.</small></span>
       <button type="button" class="btn" data-act="touchIdSpot">${settings.touchId ? 'Set again…' : 'Set…'}</button></div>` : ''}
     <div class="item"><span class="l">Unpair this iPhone<small>To use it again you’ll pair it at the Mac.</small></span>
       <button type="button" class="btn" data-act="forget">Unpair…</button></div>
@@ -380,6 +395,7 @@ export class Sheet {
         : '<button type="button" class="btn blue" data-act="reconnect">Reconnect</button>'}</div>
     ${i.localReady ? `<div class="item"><span class="l">Same Wi-Fi or hotspot<small>${local.note}</small></span>
       ${local.state}</div>` : ''}
+    ${i.tailnet ? tailnetRow(i.tailnet) : ''}
     <div class="item"><span class="l">End session<small>Disconnects and gives the Mac its normal screen back right away.</small></span>
       <button type="button" class="btn" data-act="endSession">End</button></div>
   </div></div>

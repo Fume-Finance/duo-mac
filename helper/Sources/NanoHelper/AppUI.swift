@@ -33,6 +33,7 @@ final class AppModel: ObservableObject {
     @Published var fps = 0.0
     @Published var kbps = 0.0
     @Published var keepAwake = true
+    @Published var builtinTailscale = false
     @Published var serverError: String?
     @Published var testMode = false
     @Published var dryRun = false
@@ -109,6 +110,7 @@ struct StatusActions {
     }
 
     func setKeepAwake(_ on: Bool) { core.setKeepAwake(on) }
+    func setBuiltinTailscale(_ on: Bool) { core.setBuiltinTailscale(on) }
     func setAllow(_ on: Bool) { core.setAllowConnections(on) }
     func setStayReachable(_ on: Bool) { core.setStayReachable(on) }
     func answer(_ id: UUID, allow: Bool) { core.answerPairing(id, allow: allow) }
@@ -311,11 +313,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                                             name: Notification.Name("com.riccardoconti.duomac.show"), object: nil)
         // First run, or something still missing: the setup guide. Otherwise stay in the menu bar.
         // (The model fills in a moment after launch: Tailscale and the paired devices load async.)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
-            guard let self else { return }
-            self.core.refreshModel()
-            if !SetupStep.allDone(self.core.model) { self.showGuide() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.checkSetupAtLaunch(tries: 0) }
+        // A guide that opened by itself closes by itself once everything turns green (after a restart
+        // Tailscale can take a while to come up): nothing left to do there.
+        watchers.append(core.model.objectWillChange.debounce(for: .seconds(1), scheduler: RunLoop.main)
+            .sink { [weak self] _ in
+                guard let self, SetupStep.allDone(self.core.model) else { return }
+                UserDefaults.standard.set(true, forKey: "setupDoneOnce")
+                if self.guideOpenedByItself, self.guideWindow?.isVisible == true {
+                    Log.info("Setup complete: closing the setup guide")
+                    self.guideWindow?.close()
+                }
+                self.guideOpenedByItself = false
+            })
+    }
+
+    private var guideOpenedByItself = false
+
+    /// At launch. On a Mac that was set up before, give things like Tailscale up to 30 s after a
+    /// restart before showing the guide; on the first run, show it straight away.
+    private func checkSetupAtLaunch(tries: Int) {
+        core.refreshModel()
+        if SetupStep.allDone(core.model) {
+            UserDefaults.standard.set(true, forKey: "setupDoneOnce")
+            return
         }
+        if UserDefaults.standard.bool(forKey: "setupDoneOnce") && tries < 15 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in self?.checkSetupAtLaunch(tries: tries + 1) }
+            return
+        }
+        let wasOpen = guideWindow?.isVisible == true
+        showGuide()
+        guideOpenedByItself = !wasOpen
     }
 
     /// Opening the app again (Finder, Spotlight, the launcher): the panel, or the guide if setup isn't done.
@@ -337,6 +366,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func showGuide() {
+        guideOpenedByItself = false // opened by hand (or reopened): it stays until closed
         if guideWindow == nil {
             let view = SetupGuideView(model: core.model, actions: StatusActions(core: core),
                                       finish: { [weak self] in self?.guideWindow?.close() })

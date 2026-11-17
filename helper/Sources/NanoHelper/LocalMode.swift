@@ -31,7 +31,7 @@ final class LocalMode {
     private var monitor: NWPathMonitor?
     private var addresses: [String] = []
     private let lock = NSLock()
-    private var _origin: String?
+    private var _origins: [String] = []
     private var _hosts: [String] = []
     var onWebSocket: ((WebSocketConnection, [String: String]) -> Void)?
 
@@ -42,9 +42,10 @@ final class LocalMode {
     }
 
     /// The page allowed to connect: Duo Mac's own, at its Tailscale address (any thread).
-    var origin: String? {
-        get { lock.lock(); defer { lock.unlock() }; return _origin }
-        set { lock.lock(); _origin = newValue; lock.unlock() }
+    /// (Its Tailscale address, and the one before if it changed: the Tailscale app's or the built-in one.)
+    var origins: [String] {
+        get { lock.lock(); defer { lock.unlock() }; return _origins }
+        set { lock.lock(); _origins = newValue; lock.unlock() }
     }
 
     /// What the phone needs to try the local route: where (name and addresses) and the port.
@@ -80,7 +81,7 @@ final class LocalMode {
         server = nil
         guard let identity = issue(name: LocalMode.hostName, ips: now) else { return }
         let s = HTTPServer(port: port, localhostOnly: false, webRoot: URL(fileURLWithPath: "/nonexistent"),
-                           tls: identity, allowedOrigin: { [weak self] in self?.origin }, queue: netQueue)
+                           tls: identity, allowedOrigin: { [weak self] in self?.origins ?? [] }, queue: netQueue)
         s.onWebSocket = { [weak self] ws, headers in self?.onWebSocket?(ws, headers) }
         s.start()
         server = s

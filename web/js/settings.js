@@ -10,7 +10,9 @@ export const DEFAULTS = {
   sounds: true,
   volume: 0.55,
   haptics: true,
-  fnStandard: false,    // top row sends F1…F12 instead of brightness/volume
+  padButtons: true,     // copy, paste, undo, dictate, return beside the trackpad (when there's room)
+  toolKeys: true,       // Screen only (folded, sideways): copy, paste, undo, redo beside the ⌨︎ and ⚙︎ buttons
+  fnStandard: false,    // top row sends F1…F12 instead of the Mac app's keys (appkeys.js)
   quality: 'balanced',  // fast | balanced | sharp
   theme: 'spaceblack',  // spaceblack | silver
   keyboardSize: 'full', // Laptop layout: full (edge to edge, bigger keys) | macbook (margins, speaker grilles)
@@ -27,11 +29,13 @@ export const DEFAULTS = {
   mic: false,           // stream this iPhone's microphone to the Mac (the Duo Mac Microphone)
   macSound: true,       // play the Mac's sound on this iPhone
   video: true,          // H.264 video when the phone can decode it (else JPEG tiles)
-  foldCloses: true,     // iPhone Duo: folding it shows a closed lid (and lets the Mac sleep)
+  clipSync: true,       // the iPhone app: copy on the Mac, paste on the iPhone, and the other way
+  smooth: true,         // the iPhone app on a ProMotion screen: up to 120 frames a second
+  foldCloses: false,    // iPhone Duo: folding it shows a closed lid (and lets the Mac sleep); off: full screen
   touchId: '',          // where its Touch ID is (main.js TOUCH_ID_SPOTS): '' until the first passkey
   seenDuo: false,       // this phone has opened up into an iPhone Duo's inner screen
   duoShort: 0,          // that inner screen's short side (CSS px), to tell folded from unfolded
-  defaultsRev: 2,       // bumped when a default changes for everyone (see upgrade)
+  defaultsRev: 3,       // bumped when a default changes for everyone (see upgrade)
 };
 
 /** Settings saved before defaults changed take the new defaults for those keys. */
@@ -41,6 +45,7 @@ export function upgrade(v) {
     delete v.notch;   // rev 2: no notch, Full screen top edge
     delete v.topEdge;
   }
+  if (!(v.defaultsRev >= 3)) delete v.foldCloses; // rev 3: folded = keep using it, full screen
   v.defaultsRev = DEFAULTS.defaultsRev;
   return v;
 }

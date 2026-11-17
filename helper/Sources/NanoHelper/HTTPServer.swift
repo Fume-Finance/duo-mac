@@ -14,7 +14,7 @@ final class HTTPServer {
     let localhostOnly: Bool
     let webRoot: URL
     let tls: sec_identity_t?
-    let allowedOrigin: (() -> String?)?
+    let allowedOrigin: (() -> [String])?
     var isLocalEntrance: Bool { tls != nil }
     private var listener: NWListener?
 
@@ -25,7 +25,7 @@ final class HTTPServer {
 
     /// `queue`: where connections are handled; local mode's entrance shares the main server's, since
     /// sessions from both share the sign-in state (AuthManager, NanoCore), which isn't thread-safe.
-    init(port: UInt16, localhostOnly: Bool, webRoot: URL, tls: sec_identity_t? = nil, allowedOrigin: (() -> String?)? = nil,
+    init(port: UInt16, localhostOnly: Bool, webRoot: URL, tls: sec_identity_t? = nil, allowedOrigin: (() -> [String])? = nil,
          queue: DispatchQueue? = nil) {
         self.queue = queue ?? DispatchQueue(label: "nano.net", qos: .userInteractive)
         self.port = port
@@ -226,7 +226,8 @@ private final class HTTPConnection {
             // Only Duo Mac's own page, at its Tailscale address (or the phone's saved copy of it).
             // (Only browsers can't fake this header: a program on the network can. The credentials are
             // what keeps it out.)
-            guard let origin = headers["origin"], let allowed = server.allowedOrigin?(), origin.lowercased() == allowed.lowercased(),
+            guard let origin = headers["origin"]?.lowercased(),
+                  let allowed = server.allowedOrigin?().first(where: { $0.lowercased() == origin }),
                   let host = URLComponents(string: allowed)?.host else {
                 HTTPConnection.refusals.log { Log.warn("Local mode: refused a connection from a page at \(headers["origin"] ?? "nowhere")") }
                 return respond(403, "Forbidden")

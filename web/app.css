@@ -121,6 +121,10 @@ button { font: inherit; color: inherit; }
   border-radius: 5px 5px 2px 2px;
   image-rendering: auto;
 }
+/* The iPhone app shows the video itself, behind the page (NativeVideo.swift): see-through here. */
+html.native-video, html.native-video body, html.native-video #app, html.native-video #lid,
+html.native-video #screen-area { background: transparent; }
+html.native-video #screen { visibility: hidden; }
 /* The Mac's pointer, drawn here (js/cursor.js) above the picture. */
 #mac-cursor { position: absolute; left: 0; top: 0; z-index: 2; pointer-events: none; background: no-repeat center / 100% 100%; will-change: transform; }
 #mac-cursor[hidden] { display: none; }
@@ -413,6 +417,65 @@ button { font: inherit; color: inherit; }
   color: #e6e6ea;
 }
 #tools svg { width: 100%; height: 100%; }
+#tools #tool-mic.on { background: rgba(220, 50, 50, .85); border-color: rgba(255, 120, 120, .6); }
+/* The Mac app's keys (appkeys.js), only on the full screen. */
+#tool-keys { display: flex; gap: 6px; }
+#app:not(.screen-only) #tool-keys { display: none; }
+/* In the bottom-right corner: a row when sideways, a column when upright (folded). */
+#app.screen-only #tools { bottom: max(calc(var(--sab) - 8px), 6px); right: max(var(--sar), 6px); }
+#tools.col { flex-direction: column; align-items: flex-end; }
+#tools.col #tool-keys { flex-direction: column; }
+
+/* Beside the trackpad: copy, paste, undo / dictate, return. */
+.padside {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  z-index: 4;
+}
+.padside[hidden] { display: none; }
+.padside button {
+  width: var(--b);
+  height: var(--b);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border: 0;
+  border-radius: calc(var(--b) * .26);
+  background: linear-gradient(180deg, var(--key-top), var(--key-bot));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .07), 0 1px 1.5px rgba(0, 0, 0, .55);
+  color: var(--key-label);
+  touch-action: none;
+  transition: transform .05s, background .05s;
+}
+.padside button svg { width: calc(var(--b) * .38); height: calc(var(--b) * .38); }
+.padside button span { font: 500 max(8px, calc(var(--b) * .16))/1 -apple-system, system-ui, sans-serif; color: var(--key-sub); }
+.padside button.pressed { transform: scale(.94); background: #000; }
+.padside button.on { background: rgba(220, 50, 50, .85); color: #fff; }
+.padside button.on span { color: #fff; }
+
+/* What dictation has heard so far. */
+#dictation {
+  position: absolute;
+  left: 50%;
+  top: calc(var(--lid-h) - 56px);
+  transform: translateX(-50%);
+  max-width: min(90%, 520px);
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: rgba(20, 20, 24, .9);
+  border: 1px solid rgba(255, 255, 255, .14);
+  color: #fff;
+  font: 15px/1.35 -apple-system, system-ui, sans-serif;
+  z-index: 20;
+  pointer-events: none;
+}
+#app.screen-only #dictation { top: auto; bottom: 64px; }
+#dictation.hint { color: rgba(255, 255, 255, .6); }
+#dictation[hidden] { display: none; }
 
 /* ───────────── Deck (keyboard + trackpad half) ───────────── */
 
@@ -533,6 +596,10 @@ button { font: inherit; color: inherit; }
 .key.fn.flabel svg { display: none; }
 .key.fn:not(.flabel) .fl { display: none; }
 .key.esc { font-size: max(6px, calc(var(--u) * .2)); }
+/* The app in front's keys (appkeys.js), in the top row instead of F1–F12 (fn brings those back). */
+.fnrow.apps .key.fn, .fnrow:not(.apps) .key.appk, .key.appk.off { display: none; }
+.key.appk { font-size: max(7px, calc(var(--u) * .22)); letter-spacing: .01em; }
+.key.appk .al { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 4%; }
 .key.power svg { width: calc(var(--u) * .34); height: calc(var(--u) * .34); color: var(--key-sub); }
 .key.power.attn svg { color: #fff; animation: pulse 1.6s ease-in-out infinite; }
 
@@ -1275,3 +1342,117 @@ button { font: inherit; color: inherit; }
   font: 600 15px -apple-system, system-ui, sans-serif;
 }
 @keyframes tid-pulse { 50% { opacity: .45; } }
+
+/* ───────────── Pairing (js/pairview.js) ───────────── */
+
+#pairview { display: none; }
+#overlay.pair .boot { display: none; }
+#overlay.pair #pairview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(10px, 3vh, 26px);
+  width: 100%;
+  height: 100%;
+  padding: max(var(--sat), 14px) 18px 14px;
+  box-sizing: border-box;
+  overflow: auto;
+  color: #f2f2f4;
+  font-family: -apple-system, system-ui, sans-serif;
+  animation: pv-in .4s ease both;
+}
+#overlay.pair #pairview.wide { flex-direction: row; gap: clamp(16px, 4vw, 36px); }
+#pairview.wide .pv-anim { width: auto; flex: 1 1 0; }
+#pairview.wide .pv-form { width: auto; flex: 0 1 300px; }
+@keyframes pv-in { from { opacity: 0; transform: translateY(6px); } }
+
+.pv-anim { display: flex; flex-direction: column; align-items: center; gap: 10px; flex: 0 1 auto; min-height: 0; max-width: 460px; width: 100%; justify-content: center; }
+.pv-mac { width: 100%; max-height: 32vh; flex: 0 1 auto; filter: drop-shadow(0 10px 24px rgba(0, 0, 0, .5)); }
+#pairview.wide .pv-mac { max-height: 52vh; }
+
+.pv-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 13px; color: rgba(255, 255, 255, .45); width: 100%; max-width: 340px; }
+.pv-steps li { display: flex; align-items: center; gap: 8px; transition: color .3s; }
+.pv-steps b {
+  display: inline-grid; place-items: center; flex: none;
+  width: 18px; height: 18px; border-radius: 50%;
+  font-size: 11px; background: rgba(255, 255, 255, .1); color: rgba(255, 255, 255, .6);
+}
+.pv-steps em { font-style: normal; font-weight: 600; }
+.pv-chip { display: inline-grid; place-items: center; width: 22px; height: 16px; border-radius: 4px; background: rgba(255, 255, 255, .12); }
+.pv-chip svg { width: 15px; height: 11px; }
+.pv-s1 { animation: pv-step1 7s infinite; }
+.pv-s2 { animation: pv-step2 7s infinite; }
+.pv-s3 { animation: pv-step3 7s infinite; }
+.pv-s1 b { animation: pv-dot1 7s infinite; }
+.pv-s2 b { animation: pv-dot2 7s infinite; }
+.pv-s3 b { animation: pv-dot3 7s infinite; }
+@keyframes pv-step1 { 0%, 30% { color: #fff; } 34%, 100% { color: rgba(255, 255, 255, .45); } }
+@keyframes pv-step2 { 0%, 30% { color: rgba(255, 255, 255, .45); } 34%, 42% { color: #fff; } 46%, 100% { color: rgba(255, 255, 255, .45); } }
+@keyframes pv-step3 { 0%, 42% { color: rgba(255, 255, 255, .45); } 46%, 96% { color: #fff; } 100% { color: rgba(255, 255, 255, .45); } }
+@keyframes pv-dot1 { 0%, 30% { background: #0a84ff; color: #fff; } 34%, 100% { background: rgba(255, 255, 255, .1); color: rgba(255, 255, 255, .6); } }
+@keyframes pv-dot2 { 0%, 30% { background: rgba(255, 255, 255, .1); color: rgba(255, 255, 255, .6); } 34%, 42% { background: #0a84ff; color: #fff; } 46%, 100% { background: rgba(255, 255, 255, .1); color: rgba(255, 255, 255, .6); } }
+@keyframes pv-dot3 { 0%, 42% { background: rgba(255, 255, 255, .1); color: rgba(255, 255, 255, .6); } 46%, 96% { background: #0a84ff; color: #fff; } 100% { background: rgba(255, 255, 255, .1); color: rgba(255, 255, 255, .6); } }
+
+/* The little Mac: the pointer goes to Duo Mac's menu bar icon, opens its menu, picks Add iPhone…,
+   and the window with the QR code opens. 7 s, over and over. */
+.pv-cursor { animation: pv-cursor 7s cubic-bezier(.45, 0, .25, 1) infinite; }
+.pv-click { transform-box: fill-box; transform-origin: 0 0; animation: pv-click 7s infinite; }
+.pv-icon rect:first-child { animation: pv-iconbg 7s infinite; }
+.pv-menu { opacity: 0; animation: pv-menu 7s infinite; }
+.pv-hl { opacity: 0; animation: pv-hl 7s infinite; }
+.pv-win { opacity: 0; transform-box: fill-box; transform-origin: 50% 50%; animation: pv-win 7s cubic-bezier(.2, .8, .2, 1) infinite; }
+@keyframes pv-cursor {
+  0% { transform: translate(150px, 128px); }
+  18%, 22% { transform: translate(258px, 17px); }
+  34%, 40% { transform: translate(244px, 63px); }
+  52%, 92% { transform: translate(286px, 176px); }
+  100% { transform: translate(150px, 128px); }
+}
+@keyframes pv-click { 0%, 19% { transform: scale(1); } 20% { transform: scale(.82); } 21.5%, 37% { transform: scale(1); } 38% { transform: scale(.82); } 39.5%, 100% { transform: scale(1); } }
+@keyframes pv-iconbg { 0%, 20% { fill: rgba(255, 255, 255, 0); } 21%, 40% { fill: rgba(255, 255, 255, .28); } 41%, 100% { fill: rgba(255, 255, 255, 0); } }
+@keyframes pv-menu { 0%, 20.5% { opacity: 0; } 22%, 39.5% { opacity: 1; } 41%, 100% { opacity: 0; } }
+@keyframes pv-hl { 0%, 31% { opacity: 0; } 33%, 39.5% { opacity: 1; } 41%, 100% { opacity: 0; } }
+@keyframes pv-win { 0%, 40% { opacity: 0; transform: scale(.9); } 45%, 92% { opacity: 1; transform: scale(1); } 97%, 100% { opacity: 0; transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) {
+  .pv-cursor, .pv-click, .pv-menu, .pv-hl, .pv-steps li, .pv-steps b, .pv-icon rect:first-child { animation: none; }
+  .pv-cursor { transform: translate(286px, 176px); }
+  .pv-win { animation: none; opacity: 1; }
+}
+
+.pv-form { display: flex; flex-direction: column; align-items: stretch; gap: 12px; width: 100%; max-width: 340px; flex: none; }
+.pv-form h2 { margin: 0; font-size: 20px; font-weight: 700; text-align: center; letter-spacing: -.01em; }
+#pairview.wide .pv-form h2 { text-align: left; }
+.pv-note { margin: 0; padding: 8px 10px; border-radius: 10px; background: rgba(255, 159, 10, .14); color: #ffd28a; font-size: 13px; text-align: center; }
+.pv-hint { margin: 0; font-size: 13px; color: rgba(255, 255, 255, .6); text-align: center; }
+.pv-scan {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  height: 50px; border: 0; border-radius: 14px;
+  background: #0a84ff; color: #fff; font: 600 17px/1 -apple-system, system-ui, sans-serif;
+  box-shadow: 0 6px 18px rgba(10, 132, 255, .35);
+}
+.pv-scan:active { transform: scale(.98); background: #0870d8; }
+.pv-scan svg { width: 24px; height: 24px; }
+.pv-or { display: flex; align-items: center; gap: 10px; color: rgba(255, 255, 255, .4); font-size: 12px; }
+.pv-or::before, .pv-or::after { content: ""; flex: 1; height: 1px; background: rgba(255, 255, 255, .14); }
+
+/* The code: 8 boxes (4 – 4) over one real field, so the iPhone keyboard, paste and autofill work. */
+.pv-code { position: relative; display: block; }
+.pv-code input {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  opacity: 0.01; color: transparent; caret-color: transparent; background: transparent;
+  border: 0; font-size: 16px; z-index: 1;
+}
+.pv-cells { display: flex; align-items: center; justify-content: center; gap: 6px; }
+.pv-cells i {
+  flex: 1 1 0; max-width: 36px; height: 46px; display: grid; place-items: center;
+  border-radius: 10px; background: rgba(255, 255, 255, .07); border: 1.5px solid rgba(255, 255, 255, .14);
+  font: 600 21px/1 ui-monospace, Menlo, monospace; font-style: normal; color: #fff;
+  transition: border-color .15s, background .15s, transform .15s;
+}
+.pv-cells i.filled { background: rgba(255, 255, 255, .12); }
+.pv-cells i.cur { border-color: #0a84ff; box-shadow: 0 0 0 3px rgba(10, 132, 255, .25); }
+.pv-cells i.cur:empty::after { content: ""; width: 2px; height: 22px; background: #0a84ff; animation: pv-caret 1s steps(1) infinite; }
+@keyframes pv-caret { 50% { opacity: 0; } }
+.pv-dash { color: rgba(255, 255, 255, .4); font-size: 20px; padding: 0 2px; }
+.pv-code.done i { border-color: rgba(48, 209, 88, .8); }

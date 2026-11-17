@@ -44,7 +44,11 @@ final class NanoCore {
     private var lastCaptured = 0
     private var lastSeen: [String: Date] = [:]  // net queue: device → when its last session ended
     let nano = NanoDisplay()                 // main thread
+    let clipboard = ClipboardSync()          // main thread
     private var nanoTeardown: DispatchWorkItem?  // main thread
+    /// When macOS last stalled setting up the Duo display: it's left alone for a while after that.
+    private var nanoStalledAt = Date.distantPast  // main thread
+    private var nanoRemade = false                // net queue: the Duo display was just made again after it couldn't be captured
 
     private(set) var auth: AuthManager!      // net queue
     let tailscale = Tailscale()
@@ -89,6 +93,7 @@ final class NanoCore {
     // MARK: Lifecycle
 
     func start() {
+        applyBuiltinTailscale()
         server.onWebSocket = { [weak self] ws, headers in self?.attach(ws, headers: headers) }
         server.onState = { [weak self] ok, err in
             DispatchQueue.main.async { self?.model.serverError = ok ? nil : err }
@@ -96,7 +101,7 @@ final class NanoCore {
         server.start()
         // Local mode: the same connection straight over the Wi-Fi or hotspot (LocalMode).
         sameNetwork.onWebSocket = { [weak self] ws, headers in self?.attach(ws, headers: headers) }
-        if options.testPattern { sameNetwork.origin = "http://localhost:\(port)" }
+        if options.testPattern { sameNetwork.origins = ["http://localhost:\(port)"] }
         server.dynamicFile = { [weak self] path in
             guard path == "/duo-mac-local.mobileconfig", let p = self?.sameNetwork.profile() else { return nil }
             return (p, "application/x-apple-aspen-config")
@@ -142,6 +147,7 @@ final class NanoCore {
         nano.destroy()
         // Nothing answers at the Mac's Tailscale address while the app isn't running.
         if !localMode { tailscale.stopServing(port: port, wait: true) }
+        builtinTailnet?.stop()
     }
 
     private func startTimers() {
@@ -152,6 +158,23 @@ final class NanoCore {
             self?.tickStats()
             self?.keepLockScreenOn()
         })
+        timers.append(Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
+            self?.keepDisplayOnWithLidClosed()
+        })
+        // Copy on one, paste on the other (Clipboard.swift).
+        clipboard.send = { [weak self] m in self?.server.queue.async { self?.session?.send(m) } }
+        timers.append(Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            self?.clipboard.tick()
+        })
+        // The app in front: the phone shows its keys (web/js/appkeys.js).
+        noteFrontApp(NSWorkspace.shared.frontmostApplication)
+        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil,
+                                                          queue: .main) { [weak self] n in
+            guard let self, let app = n.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+                  self.noteFrontApp(app) else { return }
+            let m = self.frontApp
+            self.server.queue.async { self.session?.send(["t": "app", "app": m]) }
+        }
         NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.screensDidSleepNotification, object: nil,
                                                           queue: .main) { [weak self] _ in
             self?.keepLockScreenOn(wake: true)
@@ -186,6 +209,11 @@ final class NanoCore {
             self.tsLastRefresh = Date()
             if st.phase != self.tsStatus.phase || st.serving != self.tsStatus.serving {
                 Log.info("Tailscale: \(st.phase)\(st.dnsName.map { " · \($0)" } ?? "")\(st.serving ? " · serving" : "")\(st.reachable ? " · reachable" : "")")
+            }
+            // Built-in Tailscale waiting to be signed in: open the sign-in page once, right away.
+            if self.config.builtinTailscale, st.phase == .needsLogin, let u = st.authURL, u != self.openedLogin {
+                self.openedLogin = u
+                if let url = URL(string: u) { NSWorkspace.shared.open(url) }
             }
             if st != self.tsStatus {
                 self.tsStatus = st
@@ -296,10 +324,54 @@ final class NanoCore {
         } else {
             auth.log.add("iPhone connections turned on")
         }
+        applyBuiltinTailscale()
         updateReachable()
         refreshModel()
         tsLastRefresh = .distantPast
         refreshTailscale()
+    }
+
+    // MARK: Tailscale built in (BuiltinTailnet.swift) or the Tailscale app
+
+    private var builtinTailnet: BuiltinTailnet?
+    private var openedLogin: String?
+
+    /// main thread: start or stop the built-in device to match the settings.
+    private func applyBuiltinTailscale() {
+        let want = config.builtinTailscale && config.allowConnections && !localMode && !options.testPattern
+        if want {
+            if builtinTailnet == nil { builtinTailnet = BuiltinTailnet(configDir: store.dir, port: port) }
+            builtinTailnet?.start()
+            tailscale.builtin = builtinTailnet
+        } else {
+            builtinTailnet?.stop()
+            tailscale.builtin = config.builtinTailscale ? builtinTailnet : nil
+        }
+    }
+
+    /// main thread
+    func setBuiltinTailscale(_ on: Bool) {
+        updateConfig { $0.builtinTailscale = on }
+        Log.info(on ? "Tailscale: built in (the Tailscale app isn't needed)" : "Tailscale: through the Tailscale app")
+        applyBuiltinTailscale()
+        tsStatus = Tailscale.Status()
+        refreshModel()
+        tsLastRefresh = .distantPast
+        refreshTailscale()
+    }
+
+    /// The page's addresses the Mac answers on the local network: its Tailscale address now, and the
+    /// ones it had before (the Tailscale app's, the built-in one's), so a phone opened at either works.
+    private func knownOrigins() -> [String] {
+        let key = "knownTailscaleNames"
+        var names = UserDefaults.standard.stringArray(forKey: key) ?? []
+        if let n = tsStatus.dnsName, !names.contains(n) {
+            names.insert(n, at: 0)
+            names = Array(names.prefix(3))
+            UserDefaults.standard.set(names, forKey: key)
+        }
+        if let n = tsStatus.dnsName, let i = names.firstIndex(of: n), i > 0 { names.remove(at: i); names.insert(n, at: 0) }
+        return names.map { "https://\($0)" }
     }
 
     /// main thread
@@ -353,6 +425,7 @@ final class NanoCore {
         pending.removeValue(forKey: ObjectIdentifier(s))
         guard session === s else { return }
         session = nil
+        DispatchQueue.main.async { self.clipboard.enabled = false }
         s.pointerEcho.stop()
         setSink(nil)
         source.stop()
@@ -418,9 +491,30 @@ final class NanoCore {
             }
         }
         // A sleeping screen can't be captured (it shows up as "no display"): wake it, like touching the trackpad.
-        if NanoCore.wakeDisplays() { NanoCore.lastWake = Date() }
+        if !NanoCore.lidClosed() {
+            if NanoCore.wakeDisplays() { NanoCore.lastWake = Date() }
+        } else {
+            // Lid closed: the built-in screen stays off, but declared activity keeps the Mac (and the
+            // Duo display about to show its lock screen) awake, as if someone touched the trackpad.
+            var id: IOPMAssertionID = 0
+            IOPMAssertionDeclareUserActivity("Duo Mac: iPhone connected" as CFString, kIOPMUserActiveLocal, &id)
+            NanoCore.nudgePointer()
+            IOPMAssertionRelease(id)
+        }
         // No Screen Recording permission yet: don't reshape the Mac's screen for nothing.
-        let wantNano = s.nanoOn && permissions().screen
+        // With the lid closed the Duo display is the only screen there is: try it again after 2 minutes
+        // (each refused attempt freezes things for 10-20 s and drops the connection).
+        let sinceStall = DispatchQueue.main.sync { Date().timeIntervalSince(self.nanoStalledAt) }
+        let lidStalled = NanoCore.lidClosed() && sinceStall < 120
+        // Lid open: after the Duo display couldn't be captured, the Mac's own screen for a minute and a
+        // half, unless the phone asks for a new shape (a layout or size change): then try again now.
+        let stalled = lidStalled || (!NanoCore.lidClosed() && !reshape && sinceStall < 90)
+        if lidStalled {
+            s.send(["t": "notice", "level": "error", "code": "lid-closed",
+                    "msg": "The Mac's lid is closed and macOS has switched its screen off, so it can't show anything. Open the lid for a moment, then tap Try again."])
+            return // nothing to capture, and touching the displays now would only freeze things again
+        }
+        let wantNano = s.nanoOn && permissions().screen && !stalled
         var nanoPts = nanoPoints(for: s)
         // Keep the Duo display's shape for the whole session: rotating the phone just letterboxes.
         // Reshaping a mirrored display mid-session left windows off-screen. Only a new desktop-size
@@ -428,22 +522,34 @@ final class NanoCore {
         if !reshape, let cur = DispatchQueue.main.sync(execute: { self.nano.points }) {
             nanoPts = cur
         }
-        if s.nanoOn { Log.info("Duo display request: \(s.nanoSize) → \(nanoPts.w)×\(nanoPts.h)\(reshape ? "" : " (shape kept)")") }
+        let fps = s.streamFPS
+        if s.nanoOn { Log.info("Duo display request: \(s.nanoSize) → \(nanoPts.w)×\(nanoPts.h) at \(fps) fps\(reshape ? "" : " (shape kept)")") }
         var nanoFailed = false
         // Reconfiguring displays at the lock screen confuses macOS: wait until the Mac is unlocked
-        // (the phone's keyboard can type the password); tickStats retries every second.
-        let waitForUnlock = wantNano && !options.testPattern && !NanoCore.unlockedForSure()
+        // (the phone's keyboard can type the password); tickStats retries every second. Not with the
+        // lid closed: the Mac's own screen is off for good then, so the Duo display is the only place
+        // the lock screen can show.
+        let lidClosed = NanoCore.lidClosed()
+        let waitForUnlock = wantNano && !options.testPattern && !lidClosed && !NanoCore.unlockedForSure()
+        if wantNano && lidClosed && NanoCore.screenIsLocked() { Log.info("Lid closed and Mac locked: the lock screen goes on the Duo display") }
         s.nanoWaitingForUnlock = waitForUnlock
         DispatchQueue.main.sync {
             self.nanoTeardown?.cancel()
             self.nanoTeardown = nil
+            // A Duo display left from an earlier session that fell asleep (or went away) never wakes up,
+            // and the Mac's own screens mirroring it stay black: replace it with a fresh one.
+            if wantNano, !waitForUnlock, let old = self.nano.displayID,
+               CGDisplayIsAsleep(old) != 0 || CGDisplayIsOnline(old) == 0 {
+                Log.info("The Duo display left from before is asleep: replacing it")
+                self.nano.destroy()
+            }
             if waitForUnlock {
                 self.source.targetDisplayID = nil
             } else if wantNano {
                 if let tp = self.source as? TestPatternSource {
                     tp.nanoSize = CGSize(width: nanoPts.w, height: nanoPts.h)
                     tp.targetDisplayID = 1
-                } else if var id = self.nano.ensure(width: nanoPts.w, height: nanoPts.h) {
+                } else if var id = { self.nano.hz = fps; return self.nano.ensure(width: nanoPts.w, height: nanoPts.h) }() {
                     // macOS refuses Retina mode below some size: step up 10% until it accepts.
                     var tries = 0
                     let stepped = !self.nano.isRetina
@@ -459,7 +565,20 @@ final class NanoCore {
                         Log.info("Smallest sharp Duo display: \(nanoPts.w) pt wide (remembered)")
                     }
                     self.nano.mirrorAllDisplays()
+                    if lidClosed { self.nano.makeMain() }
                     self.source.targetDisplayID = id
+                    // macOS struggling to set it up (mode switches timing out, the window server
+                    // freezing): don't push on, show the Mac's own screen for the next 10 minutes.
+                    if self.nano.stalled && lidClosed {
+                        Log.warn("macOS refuses display changes with the lid closed (its screen is switched off)")
+                        self.nanoStalledAt = Date()
+                    } else if self.nano.stalled {
+                        Log.warn("macOS was slow to set up the Duo display: showing the Mac's own screen instead")
+                        self.nanoStalledAt = Date()
+                        self.nano.destroy()
+                        nanoFailed = true
+                        self.source.targetDisplayID = nil
+                    }
                 } else {
                     nanoFailed = true
                     self.source.targetDisplayID = nil
@@ -502,10 +621,47 @@ final class NanoCore {
             }
             return
         }
-        captureStartedAt = Date()
-        source.start(width: size.w, height: size.h, fps: options.testPattern ? 30 : 60) { [weak self, weak s] err in
-            guard let self, let err, let s else { return }
-            self.server.queue.async { self.reportCaptureError(err, to: s) }
+        let startedAt = Date()
+        captureStartedAt = startedAt
+        let onDuo = DispatchQueue.main.sync { source.targetDisplayID != nil && nano.isActive }
+        source.start(width: size.w, height: size.h, fps: options.testPattern ? 30 : fps) { [weak self, weak s] err in
+            guard let self, let s else { return }
+            guard let err else {
+                if onDuo { self.server.queue.async { self.nanoRemade = false } }
+                return
+            }
+            self.server.queue.async {
+                // A newer start (the phone was folded or turned meanwhile) took over: that one counts.
+                guard self.captureStartedAt == startedAt, self.session === s else { return }
+                // Made and remade quickly (the phone turning, layouts changing), a new Duo display can
+                // fail to show up for capture: make it once more before giving up on it.
+                if onDuo, !NanoCore.lidClosed(), !self.nanoRemade, case NanoError.noDisplay = err {
+                    Log.warn("The Duo display can't be captured yet: making it again")
+                    self.nanoRemade = true
+                    DispatchQueue.main.sync {
+                        self.nano.destroy()
+                        self.source.targetDisplayID = nil
+                    }
+                    self.startStreaming(for: s)
+                    return
+                }
+                // Still not: never leave the Mac's screens mirroring a display nobody sees. Put them
+                // back and show the Mac's own screen (for a minute and a half, or until a new shape).
+                if onDuo, !NanoCore.lidClosed(), case NanoError.noDisplay = err {
+                    self.nanoRemade = false
+                    Log.warn("The Duo display can't be captured: showing the Mac's own screen instead")
+                    DispatchQueue.main.sync {
+                        self.nanoStalledAt = Date()
+                        self.nano.destroy()
+                        self.source.targetDisplayID = nil
+                    }
+                    self.startStreaming(for: s, reshape: false)
+                    s.send(["t": "notice", "level": "info", "code": "nano-unavailable",
+                            "msg": "The Duo display couldn't be created on this Mac; showing the Mac's screen instead."])
+                    return
+                }
+                self.reportCaptureError(err, to: s)
+            }
         }
         DispatchQueue.main.async { self.setAwake(self.config.keepAwake) }
     }
@@ -587,6 +743,15 @@ final class NanoCore {
         }
     }
 
+    /// The MacBook's lid is shut: its built-in screen is off and can't be woken.
+    static func lidClosed() -> Bool {
+        let root = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("IOPMrootDomain"))
+        guard root != 0 else { return false }
+        defer { IOObjectRelease(root) }
+        let v = IORegistryEntryCreateCFProperty(root, "AppleClamshellState" as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue()
+        return (v as? Bool) ?? false
+    }
+
     static func screenIsLocked() -> Bool {
         guard let d = CGSessionCopyCurrentDictionary() as? [String: Any] else { return true }
         return (d["CGSSessionScreenIsLocked"] as? Bool) ?? false || (d["kCGSSessionOnConsoleKey"] as? Bool) == false
@@ -602,7 +767,8 @@ final class NanoCore {
         if !ok { unlockedSince = nil; return false }
         let since = unlockedSince ?? Date()
         unlockedSince = since
-        return Date().timeIntervalSince(since) >= 2 && Date().timeIntervalSince(lastWake) >= 3
+        // Reshaping the displays 3 s after waking them once froze macOS's window server: wait 5.
+        return Date().timeIntervalSince(since) >= 2 && Date().timeIntervalSince(lastWake) >= 5
     }
 
     /// Desktop size of the Duo display in points: a fixed width per size choice,
@@ -631,11 +797,14 @@ final class NanoCore {
         guard nano.isActive || source.targetDisplayID != nil else { return }
         let item = DispatchWorkItem { [weak self] in
             guard let self else { return }
-            // Never reconfigure displays at the lock screen or while they sleep: try again later.
-            if NanoCore.screenIsLocked() || DisplayInfo.activeDisplays().allSatisfy({ CGDisplayIsAsleep($0) != 0 }) {
-                Log.info("Mac locked or asleep: keeping the Duo display until it's unlocked")
+            // Don't take away the only screen of a Mac with its lid closed, nor reconfigure while the
+            // Mac's own screens sleep: try again soon. Locked is no reason to wait: kept at the lock
+            // screen, the Duo display fell asleep and the Mac's screen mirroring it stayed black.
+            let own = DisplayInfo.activeDisplays().filter { $0 != self.nano.displayID }
+            if NanoCore.lidClosed() || (!own.isEmpty && own.allSatisfy({ CGDisplayIsAsleep($0) != 0 })) {
+                Log.info("Mac asleep or lid closed: keeping the Duo display for now")
                 self.nanoTeardown = nil
-                DispatchQueue.main.asyncAfter(deadline: .now() + 20) { [weak self] in
+                DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
                     guard let self, self.nanoTeardown == nil, !self.model.connected else { return }
                     self.scheduleNanoTeardown()
                 }
@@ -772,6 +941,20 @@ final class NanoCore {
         return (max(160, Int(w) & ~1), max(100, Int(h) & ~1))
     }
 
+    private let frontLock = NSLock()
+    private var _frontApp: [String: Any] = [:]
+    /// The app in front on the Mac (any thread): its bundle ID and name.
+    var frontApp: [String: Any] { frontLock.lock(); defer { frontLock.unlock() }; return _frontApp }
+
+    /// main thread. Duo Mac's own windows don't count: the keys stay those of the app you were in.
+    @discardableResult
+    private func noteFrontApp(_ app: NSRunningApplication?) -> Bool {
+        guard let app, app.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return false }
+        frontLock.lock(); defer { frontLock.unlock() }
+        _frontApp = ["id": app.bundleIdentifier ?? "", "name": app.localizedName ?? ""]
+        return true
+    }
+
     private func configMessage(for s: Session, size: (w: Int, h: Int)) -> [String: Any] {
         let info = source.info
         var display: [String: Any] = [
@@ -804,6 +987,7 @@ final class NanoCore {
             "mic": ["installed": Microphone.isInstalled, "update": Microphone.needsUpdate],
             "local": sameNetwork.info ?? [:],
             "route": s.peer.local ? "local" : s.peer.viaTailscale ? "tailscale" : "direct",
+            "app": frontApp,
         ]
     }
 
@@ -821,7 +1005,11 @@ final class NanoCore {
 
     /// main thread
     func refreshModel() {
-        if !options.testPattern { sameNetwork.origin = tsStatus.dnsName.map { "https://\($0)" } }
+        if !options.testPattern {
+            sameNetwork.origins = knownOrigins()
+            // Where the iPhone app opens (tools/ios-app.sh builds it with this address).
+            if let u = tsStatus.url { try? Data((u + "/").utf8).write(to: store.dir.appendingPathComponent("url.txt"), options: .atomic) }
+        }
         let url = pairingURL()
         if url != model.url || (url != nil && model.qr == nil) {
             model.url = url ?? ""
@@ -834,6 +1022,7 @@ final class NanoCore {
         model.allowConnections = c.allowConnections
         model.stayReachable = c.stayReachable
         model.keepAwake = c.keepAwake
+        model.builtinTailscale = c.builtinTailscale
         model.testMode = options.testPattern
         model.dryRun = injector.dryRun
         model.keyboardLayout = keymap.layoutName + (keymap.iso ? " · ISO" : "")
@@ -959,6 +1148,25 @@ final class NanoCore {
         } else if !on && awakeHeld {
             IOPMAssertionRelease(awakeID)
             awakeHeld = false
+        }
+    }
+
+    private var lidDisplayID: IOPMAssertionID = 0
+
+    /// A Mac kept awake with its lid closed (in a bag, on a hotspot) still switches its display off
+    /// after the idle delay, and then refuses every display change: nothing can turn it back on
+    /// remotely, so the Duo display can't be set up. Keep the display "on" while the lid is closed
+    /// (the built-in panel stays dark either way). main thread
+    private func keepDisplayOnWithLidClosed() {
+        let closed = NanoCore.lidClosed()
+        if closed && lidDisplayID == 0 {
+            let r = IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleDisplaySleep as CFString,
+                                                IOPMAssertionLevel(kIOPMAssertionLevelOn),
+                                                "Duo Mac: lid closed, ready for the iPhone" as CFString, &lidDisplayID)
+            if r == kIOReturnSuccess { Log.info("Lid closed: keeping the display on for the iPhone") } else { lidDisplayID = 0 }
+        } else if !closed && lidDisplayID != 0 {
+            IOPMAssertionRelease(lidDisplayID)
+            lidDisplayID = 0
         }
     }
 

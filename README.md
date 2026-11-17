@@ -73,6 +73,25 @@ Open **Duo Mac** from Applications or Spotlight. A visual guide walks through ea
 
 Half-fold the Duo like a laptop. If it rotates the wrong way, lock rotation in Control Center. macOS may ask once a month whether Duo Mac may keep recording the screen; say Allow.
 
+### Optional: the iPhone app
+
+The Home Screen web app works on its own. A native iPhone app (`ios/`) wraps the same page and adds what Safari can't do:
+- true full screen, with edge swipes going to the trackpad;
+- real haptics, and Face ID through the Secure Enclave;
+- video decoded natively at up to 120 fps on ProMotion screens;
+- dictation, a shared clipboard and an in-app QR scanner;
+- Tailscale built in, so the iPhone's VPN can stay off.
+
+To install it you need Xcode with your Apple ID added (a free account works) and the iPhone plugged in once with Developer Mode on. Then run:
+
+```bash
+tools/ios-app.sh
+```
+
+Free signing lasts 7 days. The script also sets up an hourly job that reinstalls the app before it expires, whenever the iPhone is plugged in or on the same Wi-Fi. Tailscale for the app is built from [libtailscale](https://github.com/tailscale/libtailscale) the first time (needs Go).
+
+The Mac can run Tailscale itself too: turn on **Built-in Tailscale** in Settings, sign in once, and the Mac no longer needs the Tailscale app (iPhones pair again at the new address).
+
 ## Using it
 
 <img src="docs/images/mac-menu.png" width="300" align="right" alt="The Duo Mac menu bar panel: the connected iPhone, frame rate and switches">

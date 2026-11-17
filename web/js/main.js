@@ -7,7 +7,10 @@ import { Keyboard, MOD } from './keyboard.js';
 import { Trackpad } from './trackpad.js';
 import { Sheet } from './sheet.js';
 import { sound } from './sound.js';
-import { haptic, addHapticSwitch } from './haptics.js';
+import { haptic, tapHaptic, addHapticSwitch } from './haptics.js';
+import { native } from './native.js';
+import { Dictation } from './dictation.js';
+import { PairView } from './pairview.js';
 import { showInstall, hideInstall, browserName } from './install.js';
 import { Mic } from './mic.js';
 import { Speaker } from './speaker.js';
@@ -26,6 +29,7 @@ let device = loadDevice();   // this iPhone's key for the Mac, once paired
 let pairCode = (params.get('pair') || '').replace(/[^0-9a-z]/gi, '').toUpperCase();
 let ticket = '';             // from the last unlock: reconnecting soon after skips passkey
 let authed = false;          // unlocked: may say hello and control the Mac
+let tailnet = null;          // the iPhone app's own Tailscale: { state, enabled }
 const LOCAL_OK_KEY = 'nano.localOK.v1';
 let localTrusted = false;    // has connected on the local route: local mode is set up
 try { localTrusted = localStorage.getItem(LOCAL_OK_KEY) === '1'; } catch {}
@@ -41,7 +45,10 @@ const passkeyReady = passkeysAvailable().then((v) => { canPasskey = v; });
 
 // ───── State ─────
 let cfg = null;
-let powered = !settings.chime;
+// "Tap to power on" is there because Safari plays no sound before a tap; the iPhone app can, so it
+// powers on by itself.
+let powered = !settings.chime || !!native;
+let autoFaceDone = false;    // the iPhone app asked for Face ID by itself for this unlock already
 let chimed = false;
 let everConnected = false;
 let failures = 0;
@@ -122,6 +129,7 @@ const pointer = {
   },
   click(b, n) {
     keyboard.markUsed();
+    tapHaptic();
     sendNow({ t: 'c', b, n, mod: keyboard.mask() });
     keyboard.consumeLatched();
   },
@@ -210,6 +218,104 @@ const trackpad = new Trackpad($('#padzone'), $('#trackpad'), {
   },
 });
 if (settings.hintSeen) $('#trackpad .hint').classList.add('gone');
+
+// ───── Shortcut buttons: beside the trackpad, and the app's keys on the full screen ─────
+/** A shortcut, pressed and let go (with the modifiers it needs, plus any latched on the keyboard). */
+function tapCombo(code, mods = 0) {
+  keyboard.markUsed();
+  const mod = mods | keyboard.mask();
+  sendNow({ t: 'k', c: code, d: 1, mod });
+  sendNow({ t: 'k', c: code, d: 0, mod });
+  keyboard.consumeLatched();
+}
+function runKey(a) {
+  sound.click('key');
+  haptic();
+  if (a.act) sendNow({ t: 'act', a: a.act });
+  else tapCombo(a.k[0], a.k[1]);
+}
+const dictation = new Dictation($('#dictation'), {
+  type: (text) => { keyboard.markUsed(); sendNow({ t: 'txt', s: text }); },
+  openKeyboard: () => openIOSKeyboard(),
+  changed: (on) => { for (const b of document.querySelectorAll('[data-side="dictate"], #tool-mic')) b.classList.toggle('on', on); },
+  say: (text, level) => showBanner(text, level, 5000),
+});
+const ic = (body) => `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
+const SIDE_KEYS = {
+  l: [
+    { id: 'copy', l: 'Copy', k: [0x08, 8], icon: ic('<rect x="5" y="5" width="8.5" height="8.5" rx="1.6"/><path d="M11 5V3.6A1.6 1.6 0 0 0 9.4 2H3.6A1.6 1.6 0 0 0 2 3.6v5.8A1.6 1.6 0 0 0 3.6 11H5"/>') },
+    { id: 'paste', l: 'Paste', k: [0x09, 8], icon: ic('<rect x="3" y="3" width="10" height="11.5" rx="1.6"/><path d="M6 3V2h4v1M5.5 7h5M5.5 10h3.5"/>') },
+    { id: 'undo', l: 'Undo', k: [0x06, 8], icon: ic('<path d="M5 3.5 2.5 6 5 8.5"/><path d="M2.5 6h7a4 4 0 0 1 0 8H7"/>') },
+  ],
+  r: [
+    { id: 'dictate', l: 'Dictate', icon: ic('<rect x="5.8" y="1.5" width="4.4" height="8" rx="2.2"/><path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.5"/>') },
+    { id: 'return', l: 'Return', k: [0x24, 0], icon: ic('<path d="M13.5 3v5.5a2 2 0 0 1-2 2H3"/><path d="M5.5 8 3 10.5 5.5 13"/>') },
+  ],
+};
+for (const side of ['l', 'r']) {
+  const box = $(`#padside-${side}`);
+  for (const a of SIDE_KEYS[side]) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.dataset.side = a.id;
+    b.setAttribute('aria-label', a.l);
+    b.innerHTML = `${a.icon}<span>${a.l}</span>`;
+    b.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      b.classList.add('pressed');
+      if (a.id === 'dictate') { sound.click('key'); haptic(); dictation.toggle(); } else runKey(a);
+    });
+    const up = () => b.classList.remove('pressed');
+    b.addEventListener('pointerup', up);
+    b.addEventListener('pointercancel', up);
+    box.appendChild(b);
+  }
+}
+/** Beside the trackpad (x, y, w, h in the deck), when the margins have room for a column of buttons. */
+function placeSides(x, y, w, h, W) {
+  // One size for both columns: what the longer one fits.
+  const most = Math.max(SIDE_KEYS.l.length, SIDE_KEYS.r.length);
+  const size = Math.floor(Math.min(56, x - 12, W - (x + w) - 12, (h - (most - 1) * 6) / most));
+  for (const side of ['l', 'r']) {
+    const box = $(`#padside-${side}`);
+    const room = side === 'l' ? x : W - (x + w);
+    const n = SIDE_KEYS[side].length;
+    const gap = Math.min(12, Math.max(6, (h - n * size) / (n + 1)));
+    box.hidden = !settings.padButtons || size < 34;
+    if (box.hidden) continue;
+    const colH = n * size + (n - 1) * gap;
+    Object.assign(box.style, {
+      left: `${side === 'l' ? (room - size) / 2 : x + w + (room - size) / 2}px`,
+      top: `${y + (h - colH) / 2}px`, width: `${size}px`, gap: `${gap}px`,
+    });
+    box.style.setProperty('--b', `${size}px`);
+  }
+}
+function hideSides() { for (const side of ['l', 'r']) $(`#padside-${side}`).hidden = true; }
+
+// On the full screen (folded, or sideways): copy, paste, undo and redo beside 🎙, ⌨︎ and ⚙︎.
+const TOOL_KEYS = [
+  SIDE_KEYS.l[0], SIDE_KEYS.l[1], SIDE_KEYS.l[2],
+  { id: 'redo', l: 'Redo', k: [0x06, 8 | 1], icon: ic('<path d="M11 3.5 13.5 6 11 8.5"/><path d="M13.5 6h-7a4 4 0 0 0 0 8H9"/>') },
+];
+function setMacApp(app) {
+  keyboard.setApp(app || null);
+}
+function renderToolKeys() {
+  const box = $('#tool-keys');
+  box.textContent = '';
+  if (!settings.toolKeys) return;
+  for (const a of TOOL_KEYS) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.setAttribute('aria-label', a.l);
+    b.innerHTML = a.icon;
+    b.addEventListener('pointerdown', (e) => { e.preventDefault(); runKey(a); });
+    box.appendChild(b);
+  }
+}
+renderToolKeys();
+$('#tool-mic')?.addEventListener('pointerdown', (e) => { e.preventDefault(); haptic(); dictation.toggle(); });
 addHapticSwitch($('#trackpad'));
 
 // ───── Touch on the screen half ─────
@@ -275,6 +381,9 @@ const sheet = new Sheet($('#sheet'), {
     if (navigator.standalone) location.href = `x-safari-${url}`;
     else location.href = url;
   },
+  tailnetLogin: () => native?.call({ t: 'tailnet-login' }).catch(() => {}),
+  tailnetOn: () => native?.call({ t: 'tailnet-enable', on: true }).catch(() => {}),
+  tailnetOff: () => native?.call({ t: 'tailnet-enable', on: false }).catch(() => {}),
   endSession: () => {
     sheet.close();
     keyboard.releaseAll();
@@ -313,7 +422,7 @@ function sheetInfo() {
     mac: cfg?.mac, display: cfg?.display, test: cfg?.test,
     displays: cfg?.displays, displayIndex: cfg?.displayIndex, nanoActive: !!cfg?.nano,
     layout: cfg?.keyboard?.layout, connected: link.open, rtt: link.rtt, device, micInstalled: cfg?.mic?.installed, micUpdate: cfg?.mic?.update, micOn: mic.running,
-    route: link.open ? link.route : '', localReady: !!link.local, localTrusted,
+    route: link.open ? link.route : '', localReady: !!link.local, localTrusted, tailnet,
     path: link.open && link.route === 'tailscale' ? tsPath : null,
   };
 }
@@ -403,11 +512,16 @@ function layout() {
   app.classList.toggle('screen-only', screenOnly);
   app.classList.toggle('pad-only', padOnly);
   $('#tools').hidden = v.layout === 'laptop';
+  // Full screen, upright (folded): the buttons stand down the side; sideways, along the bottom.
+  toolsEl.classList.toggle('col', screenOnly && !sideways);
   app.classList.toggle('nano', settings.macDisplay === 'nano');
   app.classList.toggle('show-notch', !!settings.notch);
   app.classList.toggle('haptics', !!settings.haptics);
   app.classList.toggle('tall-top', tallTop);
-  app.classList.toggle('full-top', tallTop && settings.topEdge === 'full');
+  // The iPhone app has no status bar: where nothing sits across the top (the iPhone Duo's inner
+  // screen: its camera is in a corner), the Mac's screen runs to the top edge.
+  const bareTop = !!native && safeArea().top < 20;
+  app.classList.toggle('full-top', bareTop || (tallTop && settings.topEdge === 'full'));
   app.style.setProperty('--lid-h', `${screenOnly ? H : Math.round(H * split())}px`);
   // Stats live on the trackpad, out of the way; with no trackpad, on the screen.
   const statsHome = screenOnly ? $('#screen-area') : $('#trackpad');
@@ -431,7 +545,9 @@ const closedEl = $('#closed');
 let lidClosed = false, foldTimer = 0, lastW = 0, lastH = 0;
 function checkFold(tallTop, winH) {
   const long = Math.max(innerWidth, winH), short = Math.min(innerWidth, winH) || 1;
-  if (tallTop && long / short < 1.6 && short > settings.duoShort) {
+  // (The iPhone app hides the status bar, so there it goes by the shape alone: the inner screen is the
+  // biggest nearly square one it's been shown on.)
+  if ((tallTop || native) && long / short < 1.6 && short > settings.duoShort) {
     setSetting('duoShort', short);
     if (!settings.seenDuo) setSetting('seenDuo', true);
   }
@@ -498,9 +614,12 @@ function layoutDeck() {
   if (view().layout === 'trackpad') {
     // No keyboard: the trackpad fills the half, with the same margins.
     const tp = $('#trackpad'), zone = $('#padzone');
-    const tw = aw, th = H - padTop - padBot;
+    // Room for the shortcut buttons on each side, when the phone is wide enough.
+    const side = settings.padButtons && W >= 340 ? Math.min(66, W * 0.15) : 0;
+    const tw = aw - 2 * side, th = H - padTop - padBot;
     Object.assign(zone.style, { left: '0px', top: '0px', width: `${W}px`, height: `${H}px` });
-    Object.assign(tp.style, { left: `${padX}px`, top: `${padTop}px`, width: `${tw}px`, height: `${th}px` });
+    Object.assign(tp.style, { left: `${padX + side}px`, top: `${padTop}px`, width: `${tw}px`, height: `${th}px` });
+    if (side) placeSides(padX + side, padTop, tw, th, W); else hideSides();
     for (const id of ['#speaker-l', '#speaker-r']) $(id).classList.remove('on');
     return;
   }
@@ -525,6 +644,7 @@ function layoutDeck() {
   const zoneTop = kbY + kbH + 2;
   Object.assign(zone.style, { left: '0px', top: `${zoneTop}px`, width: `${W}px`, height: `${H - zoneTop}px` });
   Object.assign(tp.style, { left: `${(W - tpW) / 2}px`, top: `${tpTop - zoneTop}px`, width: `${tpW}px`, height: `${tpH}px` });
+  placeSides((W - tpW) / 2, tpTop, tpW, tpH, W);
 
   // Speaker grilles beside the keyboard when there's room.
   const room = kbX - padX * 0.5;
@@ -588,9 +708,16 @@ onSetting((k, v) => {
   }
   if (k === 'quality') link.send({ t: 'quality', q: v });
   if (k === 'video') link.send({ t: 'codec', c: codec() });
+  if (k === 'video' || k === 'smooth') link.send({ t: 'fps', fps: maxFPS() });
+  if (k === 'clipSync') {
+    link.send({ t: 'clip-sync', on: clipSync() });
+    native?.call({ t: 'clip-watch', on: clipSync() }).catch(() => {});
+  }
   if (k === 'macSound') { link.send({ t: 'sound', on: !!v }); if (!v) speaker.stop(); }
   if (k === 'stats') statsEl.hidden = !v;
   if (k === 'fnStandard') keyboard.renderFnRow();
+  if (k === 'toolKeys') renderToolKeys();
+  if (k === 'padButtons') layout();
   if (k === 'macDisplay' || k === 'nanoSize') {
     screen.resetZoom();
     layout(); // the bezel changes with the mode, so measure again before telling the Mac
@@ -814,6 +941,7 @@ function hideTouchId() {
 
 /** While passkey `p` asks for Touch ID, mark where it is; then, the first time, ask which spot was right. */
 function touchIdWhile(p) {
+  if (native) return; // the iPhone app's Face ID / Touch ID prompt shows where the button is itself
   showTouchId(false);
   p.finally(() => (settings.touchId || foldedOpen ? hideTouchId() : showTouchId(true))).catch(() => {});
 }
@@ -821,12 +949,16 @@ window.addEventListener('resize', () => { if (!touchIdEl.hidden) placeTouchId();
 window.addEventListener('orientationchange', () => setTimeout(() => { if (!touchIdEl.hidden) placeTouchId(); }, 300));
 
 // ───── Pairing ─────
+let pairView = null;
 function showPairing(note = '') {
   pairing = null;
   if (!pairCode) {
-    showAuth('Pair this iPhone', note || 'On your Mac, open Duo Mac and scan its QR code with the Camera — or type the pairing code shown there.', {
-      field: { placeholder: 'ABCD-EFGH', max: 9, go: 'Pair', submit: (v) => { pairCode = v.replace(/[^0-9a-z]/gi, '').toUpperCase(); requestPair(); } },
+    setOverlay('pair');
+    pairView ??= new PairView($('#pairview'), {
+      scan: native ? scanPairCode : null,
+      code: (v) => { pairCode = v; requestPair(); },
     });
+    pairView.show(note);
     return;
   }
   if (isIOS && !navigator.standalone && !browserOK) {
@@ -840,6 +972,19 @@ function showPairing(note = '') {
   showAuth(`Pair with ${macName()}`, note || 'You’ll confirm it on the Mac.', {
     buttons: [{ label: 'Pair this iPhone', primary: true, onClick: requestPair }],
   });
+}
+
+/** The iPhone app: scan the Mac's pairing QR code with the camera, here. */
+function scanPairCode() {
+  native.call({ t: 'scan-qr' }).then((text) => {
+    if (!text) return;
+    let code = '';
+    try { code = new URL(text).searchParams.get('pair') || ''; } catch { code = text; }
+    code = code.replace(/[^0-9a-z]/gi, '').toUpperCase();
+    if (code.length !== 8) return showPairing('That isn’t a Duo Mac pairing code. Scan the one in Add iPhone… on your Mac.');
+    pairCode = code;
+    requestPair();
+  }).catch(() => showPairing('Allow the camera for Duo Mac in Settings, or type the code.'));
 }
 
 function requestPair() {
@@ -947,6 +1092,11 @@ function showUnlock(note = unlockNote) {
   const n = need;
   if (!n) return;
   const face = n.passkey && canPasskey;
+  // The iPhone app needs no tap before Face ID: ask straight away (once: after a cancel, the buttons).
+  if (native && face && !autoFaceDone && !note) {
+    autoFaceDone = true;
+    return faceIdUnlock();
+  }
   const buttons = [];
   if (face) buttons.push({ label: 'Unlock with Passkey', primary: true, onClick: faceIdUnlock });
   if (n.pin) buttons.push({ label: face ? 'Use PIN' : 'Enter PIN', primary: !face, onClick: () => askUnlockPin() });
@@ -1095,6 +1245,8 @@ link = new Link({
       failures = 0;
       everConnected = true;
       hideBanner();
+      native?.call({ t: 'awake', on: true }).catch(() => {});
+      warnExpiry();
       return;
     }
     if (state === 'kicked') {
@@ -1105,6 +1257,9 @@ link = new Link({
     }
     if (state === 'closed') {
       failures++;
+      native?.call({ t: 'awake', on: false }).catch(() => {});
+      native?.call({ t: 'clip-watch', on: false }).catch(() => {});
+      findMacNearby();
       authed = false;
       keyboard.releaseAll();
       trackpad.reset();
@@ -1188,6 +1343,12 @@ link = new Link({
       case 'pin-fail':
         askPin(pairing ? (pairing.passkey ? 'backup' : 'required') : 'change', 'That PIN can’t be used. Choose 6 digits.');
         break;
+      case 'app':
+        setMacApp(m.app);
+        break;
+      case 'clip': // copied on the Mac
+        if (clipSync()) native.call({ t: 'clip-set', text: m.text, img: m.img }).catch(() => {});
+        break;
       case 'paired':
         device = { dev: m.dev, tok: m.tok, mac: macLabel };
         saveDevice(device);
@@ -1203,6 +1364,7 @@ link = new Link({
         }
         screen.setDisplay(m.display);
         keyboard.setLayout({ iso: m.keyboard?.iso, labels: m.keyboard?.labels });
+        setMacApp(m.app);
         layout();
         sheet.update(sheetInfo());
         if (m.perms && !m.perms.input) showBanner('Keyboard and trackpad are off: allow Accessibility for Duo Mac on the Mac.', 'error');
@@ -1242,9 +1404,9 @@ link = new Link({
         else micIdle = setTimeout(() => { if (!micWanted) mic.stop(); }, 3000); // dictation often stops and restarts
         break;
       case 'notice':
-        if (m.level === 'error' && (m.code === 'screen-permission' || m.code === 'capture')) {
+        if (m.level === 'error' && (m.code === 'screen-permission' || m.code === 'capture' || m.code === 'lid-closed')) {
           fatal = 'permission';
-          setOverlay('error', m.code === 'capture' ? 'Screen sharing stopped' : 'One more step on the Mac', m.msg, 'Try again');
+          setOverlay('error', m.code === 'capture' ? 'Screen sharing stopped' : m.code === 'lid-closed' ? 'The Mac’s screen is off' : 'One more step on the Mac', m.msg, 'Try again');
         } else if (m.code !== 'idle') {
           showBanner(m.msg, m.level === 'error' ? 'error' : 'info', m.level === 'info' ? 4000 : 0);
         }
@@ -1279,13 +1441,19 @@ function nanoRequest() {
 
 function sendHello() {
   lastBox = screen.boxPixels();
-  link.send({ t: 'hello', v: 1, box: lastBox, q: settings.quality, standalone: !!navigator.standalone, nano: nanoRequest(), sound: !!settings.macSound, codec: codec() });
+  link.send({ t: 'hello', v: 1, box: lastBox, q: settings.quality, standalone: !!navigator.standalone, nano: nanoRequest(), sound: !!settings.macSound, codec: codec(), fps: maxFPS(), clip: clipSync() });
+  native?.call({ t: 'clip-watch', on: clipSync() }).catch(() => {});
   if (settings.mic) link.send({ t: 'mic', on: true });
 }
 
 // ───── H.264 video: much less data than JPEG tiles when a lot changes (if the phone can decode it) ─────
 let videoOK = false;
-const codec = () => (videoOK && settings.video ? 'h264' : 'jpeg');
+const codec = () => ((videoOK || native?.video) && settings.video ? 'h264' : 'jpeg');
+/** Frames a second to ask for: 120 in the iPhone app on a ProMotion screen (it shows video natively). */
+/** Shared clipboard: only the iPhone app can read and set the iPhone's clipboard by itself. */
+const clipSync = () => !!native && !!settings.clipSync;
+window.duoClipboard = (m) => { if (link.open && authed) link.send({ t: 'clip', ...m }); };
+const maxFPS = () => (native?.video && settings.smooth && settings.video ? Math.min(120, native.maxFPS || 60) : 60);
 Screen.videoSupported().then((ok) => {
   videoOK = ok;
   remoteLog('info', [`video: H.264 decoding ${ok ? 'available' : 'not available'}`]);
@@ -1531,8 +1699,12 @@ document.addEventListener('visibilitychange', () => {
     screenPad.reset();
     link.send({ t: 'rel' });
     if (link.open && authed) link.close();
-  } else if (!fatal && !lidClosed) {
-    link.reconnectNow();
+  } else {
+    autoFaceDone = false; // back in the app: Face ID asks by itself again
+    // The phone may have been turned or folded meanwhile: lay out again.
+    layout();
+    requestAnimationFrame(layout);
+    if (!fatal && !lidClosed) link.reconnectNow();
   }
 });
 window.addEventListener('pagehide', () => link.send({ t: 'rel' }));
@@ -1553,6 +1725,46 @@ setInterval(() => {
 // Debug handle (Safari Web Inspector / tests).
 window.__nano = { screen, keyboard, trackpad, sheet, macCursor, get link() { return link; }, settings };
 
+// ───── The iPhone app (ios/) ─────
+/** On this iPhone's hotspot the Mac gets a new address now and then, and its .local name doesn't
+ *  resolve there: the app knocks at each address of the (tiny) hotspot network to find it. */
+let finding = false;
+function findMacNearby() {
+  // Not before pairing: a new iPhone pairs through Tailscale only (the Mac refuses it on the local network).
+  if (!native || finding || !device) return;
+  finding = true;
+  const port = link.local?.port || 8892;
+  native.call({ t: 'find-mac', port }).then((hosts) => {
+    if (!hosts?.length) return;
+    const known = link.local?.hosts || [];
+    link.setLocal({ port, hosts: [...hosts, ...known.filter((h) => !hosts.includes(h))] });
+    remoteLog('info', [`found the Mac on the hotspot at ${hosts.join(', ')}`]);
+    if (!link.open) link.reconnectNow();
+  }).catch(() => {}).finally(() => { finding = false; });
+}
+
+/** The app's own Tailscale (Settings › Connection): its state, as the app reports it. */
+window.duoTailnet = (t) => {
+  tailnet = t;
+  if (sheet.isOpen) sheet.update(sheetInfo());
+  if (t?.state === 'running' && !link.open && !fatal) link.reconnectNow(); // its Tailscale (re)started: try now
+};
+native?.call({ t: 'tailnet' }).then((t) => window.duoTailnet(t)).catch(() => {});
+
+/** Signed with a free Apple ID, the app stops opening after 7 days unless the Mac reinstalls it
+ *  (tools/ios-app.sh does, whenever the iPhone is near): say so a couple of days before. */
+let expiryWarned = false;
+function warnExpiry() {
+  if (!native || expiryWarned) return;
+  native.call({ t: 'info' }).then((i) => {
+    const left = (i?.expires || 0) - Date.now();
+    if (!i?.expires || left > 2 * 86400e3) return;
+    expiryWarned = true;
+    const when = left < 86400e3 ? 'within a day' : 'in 2 days';
+    showBanner(`This copy of the Duo Mac app stops opening ${when}. Keep the iPhone on the Mac’s Wi-Fi (or plug it in) so the Mac can renew it.`, 'error', 12000);
+  }).catch(() => {});
+}
+
 // ───── Start ─────
 applyTheme();
 statsEl.hidden = !settings.stats;
@@ -1564,6 +1776,7 @@ setOverlay('booting', 'Looking for your Mac…');
 const LOCAL_KEY = 'nano.local.v1';
 try { link.setLocal(JSON.parse(localStorage.getItem(LOCAL_KEY) || 'null')); } catch {}
 link.connect();
+findMacNearby();
 // A copy of the app on this iPhone, so it opens even when Tailscale can't be reached (offline,
 // abroad): it then finds the Mac on the same Wi-Fi or hotspot (sw.js).
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});

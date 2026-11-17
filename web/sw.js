@@ -6,7 +6,7 @@ const CACHE = 'duo-mac-v1';
 const SHELL = ['./', 'index.html', 'app.css', 'manifest.webmanifest', 'icon-180.png', 'icon-512.png',
   'js/main.js', 'js/net.js', 'js/screen.js', 'js/keyboard.js', 'js/trackpad.js', 'js/sheet.js', 'js/settings.js',
   'js/auth.js', 'js/sound.js', 'js/haptics.js', 'js/install.js', 'js/mic.js', 'js/mic-worklet.js',
-  'js/speaker.js', 'js/speaker-worklet.js', 'js/cursor.js'];
+  'js/speaker.js', 'js/speaker-worklet.js', 'js/cursor.js', 'js/native.js', 'js/appkeys.js', 'js/dictation.js', 'js/pairview.js'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).catch(() => {}).then(() => self.skipWaiting()));

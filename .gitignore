@@ -9,3 +9,7 @@ video/
 # Vercel
 site/.vercel/
 node_modules/
+# libtailscale builds (tools/build-libtailscale.sh)
+ios/Tailscale/*.a
+helper/Tailscale/*.a
+xcuserdata/

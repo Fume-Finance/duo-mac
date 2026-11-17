@@ -86,6 +86,13 @@ final class Session {
     private(set) var box = CGSize(width: 1280, height: 800)
     /// The phone wants the Duo display (a virtual display shaped like its screen) and how roomy.
     private(set) var nanoOn = false
+    /// Frames a second the phone can show: 120 from the iPhone app on a ProMotion screen (net queue).
+    private(set) var maxFPS = 60
+    /// What to capture and send: 120 only as H.264 to a phone that shows 120 (any thread).
+    var streamFPS: Int {
+        pendingLock.lock(); defer { pendingLock.unlock() }
+        return videoMode && maxFPS >= 120 ? 120 : 60
+    }
     private(set) var nanoSize = "default"   // large (bigger text) | default | more (more space)
     var nanoWaitingForUnlock = false
     private(set) var lastMessageAt = Date()
@@ -304,6 +311,9 @@ final class Session {
         case "hello":
             setVideo((m["codec"] as? String) == "h264")
             macSound = (m["sound"] as? Bool) ?? false
+            maxFPS = int(m["fps"], 60) >= 120 ? 120 : 60
+            let clip = (m["clip"] as? Bool) ?? false
+            DispatchQueue.main.async { [weak self] in self?.core.clipboard.enabled = clip }
             let sound = macSound
             DispatchQueue.main.async { [weak self] in self?.core.muteSpeakers(sound) }
             readBox(m["box"])
@@ -323,7 +333,22 @@ final class Session {
                 core.reconfigure(self)
             }
         case "refresh": refresh()
-        case "codec": setVideo((m["c"] as? String) == "h264")
+        case "codec":
+            let before = streamFPS
+            setVideo((m["c"] as? String) == "h264")
+            if streamFPS != before { core.startStreaming(for: self, reshape: false) }
+        case "clip":
+            DispatchQueue.main.async { [weak self] in self?.core.clipboard.apply(m) }
+        case "clip-sync":
+            let on = (m["on"] as? Bool) ?? false
+            DispatchQueue.main.async { [weak self] in self?.core.clipboard.enabled = on }
+        case "fps":
+            let before = streamFPS
+            maxFPS = int(m["fps"], 60) >= 120 ? 120 : 60
+            if streamFPS != before {
+                Log.info("📱 \(clientName): \(streamFPS) frames a second")
+                core.startStreaming(for: self, reshape: false)
+            }
         case "key": requestKeyFrame()
         case "bye": core.endSession(self)
         case "display": core.switchDisplay(self, index: int(m["i"], -1))
@@ -474,7 +499,8 @@ final class Session {
         }
     }
 
-    private var videoBitrate: Int { Int(quality.videoBitrate * qualityScale) }
+    // Twice the frames don't need twice the bits (each says less), but a bit more.
+    private var videoBitrate: Int { Int(quality.videoBitrate * qualityScale * (streamFPS >= 120 ? 1.4 : 1)) }
 
     /// encode queue
     private func pump() {
@@ -691,9 +717,10 @@ final class Session {
     /// encode queue
     private func encodeVideo(_ pb: CVPixelBuffer, detail: H264Encoder.Detail) {
         let w = CVPixelBufferGetWidth(pb), h = CVPixelBufferGetHeight(pb)
-        if encoder == nil || encoder!.width != w || encoder!.height != h {
+        let fps = streamFPS
+        if encoder == nil || encoder!.width != w || encoder!.height != h || encoder!.fps != fps {
             encoder?.invalidate()
-            encoder = H264Encoder(width: w, height: h, bitrate: videoBitrate)
+            encoder = H264Encoder(width: w, height: h, bitrate: videoBitrate, fps: fps)
             needKey = true
             guard encoder != nil else { return }
         }

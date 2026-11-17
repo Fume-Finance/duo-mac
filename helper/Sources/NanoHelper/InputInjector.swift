@@ -95,7 +95,13 @@ final class InputInjector {
         var hit: AXUIElement?
         guard AXUIElementCopyElementAtPosition(sys, Float(p.x), Float(p.y), &hit) == .success, var el = hit else { return false }
         for _ in 0..<3 {
-            if InputInjector.isTextLike(el) { return true }
+            switch InputInjector.textKind(el) {
+            case .some(.editable(let what)):
+                Log.info("⌨️ iPhone keyboard: tapped \(what)")
+                return true
+            case .some(.readOnly): return false
+            case nil: break
+            }
             var parent: CFTypeRef?
             guard AXUIElementCopyAttributeValue(el, kAXParentAttribute as CFString, &parent) == .success,
                   let pa = parent, CFGetTypeID(pa) == AXUIElementGetTypeID() else { break }
@@ -104,15 +110,31 @@ final class InputInjector {
         return false
     }
 
-    private static func isTextLike(_ el: AXUIElement) -> Bool {
+    private enum TextKind { case editable(String), readOnly }
+
+    private static func textKind(_ el: AXUIElement) -> TextKind? {
         var role: CFTypeRef?
         AXUIElementCopyAttributeValue(el, kAXRoleAttribute as CFString, &role)
-        if let r = role as? String, ["AXTextField", "AXTextArea", "AXComboBox", "AXSearchField"].contains(r) { return true }
+        let r = role as? String ?? "?"
+        if ["AXTextField", "AXTextArea", "AXComboBox", "AXSearchField"].contains(r) {
+            // Only where you can type: read-only text (a mail's addresses, a log, a label you can
+            // select and copy) has the same roles, but its value can't be set.
+            var settable: DarwinBoolean = false
+            var enabled: CFTypeRef?
+            if AXUIElementIsAttributeSettable(el, kAXValueAttribute as CFString, &settable) != .success || !settable.boolValue
+                || (AXUIElementCopyAttributeValue(el, kAXEnabledAttribute as CFString, &enabled) == .success && (enabled as? Bool) == false) {
+                return .readOnly
+            }
+            return .editable(r)
+        }
         // Editable web content (contenteditable: mail, docs, chat boxes): browsers mark everything
         // inside it with an editable ancestor. (Not "the text selection is settable": browsers say
         // that of whole pages and of their tab bars, and switching tabs brought up the keyboard.)
         var editable: CFTypeRef?
-        return AXUIElementCopyAttributeValue(el, "AXEditableAncestor" as CFString, &editable) == .success && editable != nil
+        if AXUIElementCopyAttributeValue(el, "AXEditableAncestor" as CFString, &editable) == .success, editable != nil {
+            return .editable("\(r) in editable web content")
+        }
+        return nil
     }
 
     // MARK: Pointer

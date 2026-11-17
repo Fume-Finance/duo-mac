@@ -11,6 +11,9 @@ import CGVirtualDisplayPrivate
 final class NanoDisplay {
     private var display: CGVirtualDisplay?
     private(set) var points: (w: Int, h: Int)?
+    /// Refresh rate to ask for: 120 when the phone shows 120 frames a second (the iPhone app), else 60.
+    var hz = 60
+    private var appliedHz = 0
     private(set) var mirrored: [CGDirectDisplayID] = []
     private var serial: UInt32 = 1
 
@@ -20,16 +23,22 @@ final class NanoDisplay {
     /// Whether the display got its sharp 2× mode (otherwise everything looks half size).
     private(set) var isRetina = false
 
+    /// macOS took too long over the last setup: a sign the window server is in trouble.
+    private(set) var stalled = false
+    private var setupStarted = Date()
+
     /// Creates the display if needed and sets its size in points (rendered at 2×, Retina).
     /// Returns the display ID, or nil if macOS refused.
     func ensure(width w: Int, height h: Int) -> CGDirectDisplayID? {
+        setupStarted = Date()
+        stalled = false
         // Switching an existing display to a new size often leaves it stuck in 1× mode (macOS refuses
         // the Retina mode, error 1001). A fresh display gets its Retina mode reliably, so replace it.
-        if display != nil, let p = points, p.w != w || p.h != h {
+        if display != nil, let p = points, p.w != w || p.h != h || appliedHz != hz {
             stopMirroring()
             display = nil
             points = nil
-            serial = serial == 1 ? 2 : 1 // the old one may linger a moment: don't collide with it
+            serial = serial % 4 + 1 // the old one may linger a moment: don't collide with it
         }
         if display == nil {
             let d = CGVirtualDisplayDescriptor()
@@ -40,8 +49,20 @@ final class NanoDisplay {
             d.sizeInMillimeters = CGSize(width: 300, height: 200)
             d.vendorID = 0x4E41  // stable IDs: macOS remembers the arrangement for this display
             d.productID = 0x4E4F
-            d.serialNum = serial
-            guard let v = CGVirtualDisplay(descriptor: d), v.displayID != 0 else {
+            // A Duo display left by an earlier run (macOS doesn't always remove it while the Mac is
+            // locked with the lid closed) blocks a new one with the same serial: try the others.
+            var made: CGVirtualDisplay?
+            for k in 0..<4 {
+                let n = UInt32((Int(serial) - 1 + k) % 4 + 1)
+                d.serialNum = n
+                if let v = CGVirtualDisplay(descriptor: d), v.displayID != 0 {
+                    if k > 0 { Log.info("Duo display: serial \(serial) was taken, using \(n)") }
+                    serial = n
+                    made = v
+                    break
+                }
+            }
+            guard let v = made else {
                 Log.warn("Couldn't create the Duo display")
                 return nil
             }
@@ -50,23 +71,32 @@ final class NanoDisplay {
             Log.info("Duo display created (id \(v.displayID))")
         }
         guard let v = display else { return nil }
-        if points?.w != w || points?.h != h {
+        if points?.w != w || points?.h != h || appliedHz != hz {
             // Changing the mode of a display that's being mirrored fails (error 1001):
             // stop mirroring first; the caller mirrors again afterwards.
             stopMirroring()
-            let s = CGVirtualDisplaySettings()
-            s.hiDPI = 1
-            s.modes = [
-                CGVirtualDisplayMode(width: UInt(w * 2), height: UInt(h * 2), refreshRate: 60),
-                CGVirtualDisplayMode(width: UInt(w), height: UInt(h), refreshRate: 60),
-            ]
-            guard v.apply(s) else {
-                Log.warn("The Duo display rejected \(w)×\(h)")
-                return nil
+            func settings(_ rate: Int) -> CGVirtualDisplaySettings {
+                let s = CGVirtualDisplaySettings()
+                s.hiDPI = 1
+                s.modes = [
+                    CGVirtualDisplayMode(width: UInt(w * 2), height: UInt(h * 2), refreshRate: Double(rate)),
+                    CGVirtualDisplayMode(width: UInt(w), height: UInt(h), refreshRate: Double(rate)),
+                ]
+                return s
             }
+            var rate = hz
+            if !v.apply(settings(rate)) {
+                guard rate != 60, v.apply(settings(60)) else {
+                    Log.warn("The Duo display rejected \(w)×\(h)")
+                    return nil
+                }
+                Log.warn("The Duo display rejected \(rate) Hz: 60 Hz instead")
+                rate = 60
+            }
+            appliedHz = hz // what was asked (so a refusal isn't retried each time)
             points = (w, h)
             isRetina = selectRetinaMode(v.displayID, w, h)
-            Log.info("Duo display set to \(w)×\(h) pt")
+            Log.info("Duo display set to \(w)×\(h) pt at \(rate) Hz")
         }
         return v.displayID
     }
@@ -92,6 +122,8 @@ final class NanoDisplay {
                     let r = CGCompleteDisplayConfiguration(cfg, .forAppOnly)
                     if r == .success { return true }
                     Log.warn("Couldn't switch the Duo display mode (\(r.rawValue)), attempt \(attempt)")
+                    // Each refused switch can hang for 10 s: stop once setting up has taken over 5 s.
+                    if checkStalled() { return false }
                     RunLoop.current.run(until: Date().addingTimeInterval(0.25))
                 }
                 return false
@@ -114,18 +146,48 @@ final class NanoDisplay {
         var ids = [CGDirectDisplayID](repeating: 0, count: 16)
         var count: UInt32 = 0
         CGGetOnlineDisplayList(16, &ids, &count)
-        let targets = ids.prefix(Int(count)).filter { $0 != v.displayID && CGDisplayMirrorsDisplay($0) == kCGNullDirectDisplay }
+        // Not a screen that's switched off (the built-in one with the lid closed): mirroring it hangs
+        // for 10 s and fails, and there's nothing to see on it anyway.
+        let lidClosed = NanoCore.lidClosed()
+        let targets = ids.prefix(Int(count)).filter {
+            $0 != v.displayID && CGDisplayMirrorsDisplay($0) == kCGNullDirectDisplay
+                && CGDisplayIsAsleep($0) == 0 && !(lidClosed && CGDisplayIsBuiltin($0) != 0)
+        }
         guard !targets.isEmpty else { return }
         var cfg: CGDisplayConfigRef?
         guard CGBeginDisplayConfiguration(&cfg) == .success else { return }
         for t in targets { CGConfigureDisplayMirrorOfDisplay(cfg, t, v.displayID) }
         let r = CGCompleteDisplayConfiguration(cfg, .forAppOnly)
+        checkStalled()
         if r == .success {
             mirrored = Array(targets)
             Log.info("Display\(targets.count > 1 ? "s" : "") \(targets.map(String.init).joined(separator: ", ")) now mirror the Duo display")
         } else {
             Log.warn("Couldn't mirror the Mac's screens to the Duo display (\(r.rawValue))")
         }
+    }
+
+    /// With the lid closed the built-in screen can't mirror anything, and the lock screen and menu bar
+    /// stay on it, out of sight: put the Duo display where the main screen goes (origin 0,0) instead.
+    func makeMain() {
+        guard let v = display, CGMainDisplayID() != v.displayID else { return }
+        var cfg: CGDisplayConfigRef?
+        guard CGBeginDisplayConfiguration(&cfg) == .success else { return }
+        CGConfigureDisplayOrigin(cfg, v.displayID, 0, 0)
+        let r = CGCompleteDisplayConfiguration(cfg, .forAppOnly)
+        checkStalled()
+        if r == .success, CGMainDisplayID() == v.displayID {
+            Log.info("The Duo display is now the main screen")
+        } else {
+            Log.warn("Couldn't make the Duo display the main screen (\(r.rawValue), main is \(CGMainDisplayID()))")
+        }
+    }
+
+    /// Setting up has taken over 5 s since `ensure` began.
+    @discardableResult
+    private func checkStalled() -> Bool {
+        if Date().timeIntervalSince(setupStarted) > 5 { stalled = true }
+        return stalled
     }
 
     private func stopMirroring() {

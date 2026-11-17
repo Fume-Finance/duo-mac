@@ -1,5 +1,16 @@
 // This iPhone's key for the Mac, and passkey (a passkey) to unlock it. See helper/…/Auth.swift.
 import { browserName } from './install.js';
+import { native } from './native.js';
+
+/** The iPhone app answers passkey requests itself (Face ID, Secure Enclave key): web views in apps
+ *  can't use real passkeys without a paid developer account. Errors come back as DOMException names. */
+function nativeCall(m) {
+  return native.call(m).catch((e) => {
+    const err = new Error(e?.message || 'failed');
+    err.name = /^[A-Z][A-Za-z]+Error$/.test(e?.message || '') ? e.message : 'UnknownError';
+    throw err;
+  });
+}
 
 const KEY = 'nano.device.v1';
 
@@ -49,6 +60,7 @@ export function unb64u(str) {
 
 // ───── Passkeys ─────
 export async function passkeysAvailable() {
+  if (native) return true;
   try {
     return !!window.PublicKeyCredential && window.isSecureContext &&
       await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
@@ -62,6 +74,7 @@ export async function passkeysAvailable() {
  * Safari only shows passkey in response to a tap.
  */
 export function createPasskey(o) {
+  if (native) return nativeCall({ t: 'passkey-create', rpId: o.rpId, challenge: o.challenge });
   return navigator.credentials.create({
     publicKey: {
       rp: { id: o.rpId, name: 'Duo Mac' },
@@ -89,6 +102,7 @@ export function createPasskey(o) {
 
 /** passkey for one challenge. Call it straight from a tap handler, like createPasskey. */
 export function getAssertion(o) {
+  if (native) return nativeCall({ t: 'passkey-get', rpId: o.rpId, challenge: o.challenge, cred: o.cred });
   return navigator.credentials.get({
     publicKey: {
       challenge: unb64u(o.challenge),

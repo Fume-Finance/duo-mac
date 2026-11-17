@@ -366,6 +366,30 @@ struct GeneralPage: View {
                     Text("This Mac won't sleep. Keep it plugged in; a closed MacBook still sleeps without an external display.")
                 }
                 Toggle("Keep the screen on while connected", isOn: Binding(get: { model.keepAwake }, set: actions.setKeepAwake))
+                if BuiltinTailnet.isInstalled {
+                    Toggle(isOn: Binding(get: { model.builtinTailscale }, set: actions.setBuiltinTailscale)) {
+                        Text("Built-in Tailscale")
+                        Text("Duo Mac joins your tailnet by itself as \"duo-mac\", so this Mac doesn't need the Tailscale app. Sign in once; iPhones pair again at the new address.")
+                    }
+                    if model.builtinTailscale {
+                        let ts = model.tailscale
+                        HStack {
+                            Text(ts.phase == .ready ? "Ready at \(ts.dnsName ?? "")"
+                                 : ts.phase == .needsLogin ? "Sign in to add Duo Mac to your tailnet."
+                                 : ts.phase == .needsApproval ? "Approve \"duo-mac\" in the Tailscale admin console."
+                                 : ts.phase == .needsHTTPS ? (ts.detail ?? "Turn on HTTPS certificates in the admin console.")
+                                 : "Starting…")
+                                .font(.callout).foregroundStyle(.secondary)
+                            Spacer()
+                            switch ts.phase {
+                            case .needsLogin: Button("Sign In…", action: actions.signIn)
+                            case .needsApproval: Button("Admin Console…", action: actions.openAdmin)
+                            case .needsHTTPS: Button("Turn On HTTPS…", action: actions.enableHTTPS)
+                            default: EmptyView()
+                            }
+                        }
+                    }
+                }
             }
             Section {
                 HStack(spacing: 12) {
@@ -413,35 +437,50 @@ struct AddPhonePage: View {
     @ObservedObject var model: AppModel
     let actions: StatusActions
     let openGuide: () -> Void
+    @State private var safariHelp = false
 
     var body: some View {
         Form {
             if let qr = model.qr, model.allowConnections {
                 Section {
-                    HStack(spacing: 18) {
-                        ScanQR(qr: qr, side: 104)
-                        VStack(alignment: .leading, spacing: 4) {
-                            Label("Scan it with the iPhone's Camera", systemImage: "camera.fill").font(.headline)
-                            Text("It opens Duo Mac in the iPhone's browser.").foregroundStyle(.secondary)
+                    HStack(alignment: .center, spacing: 22) {
+                        ScanQR(qr: qr, side: 132)
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Pair an iPhone").font(.title3.weight(.semibold))
+                            PairStep(n: 1, text: "Open **Duo Mac** on the iPhone")
+                            PairStep(n: 2, text: "Tap **Scan QR Code**, or type the code:")
+                            HStack(spacing: 10) {
+                                PairCodeBoxes(code: model.pairCode)
+                                Button {
+                                    NSPasteboard.general.clearContents()
+                                    NSPasteboard.general.setString(model.pairCode.replacingOccurrences(of: "-", with: ""), forType: .string)
+                                } label: { Image(systemName: "doc.on.doc") }
+                                .buttonStyle(.borderless).help("Copy the code")
+                            }
+                            .padding(.leading, 30)
+                            PairStep(n: 3, text: "Click **Allow** here when it asks")
                         }
+                        Spacer(minLength: 0)
                     }
-                    .padding(.vertical, 4)
+                    .padding(.vertical, 8)
                 }
                 Section {
-                    InstallGuide(detected: model.phoneBrowser, phoneWidth: 100, listWidth: 230)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
-                } header: {
-                    Text("Then add it to the Home Screen")
-                } footer: {
-                    Text("Open Duo Mac from the Home Screen, then click Allow on this Mac.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    DisclosureGroup(isExpanded: $safariHelp) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Label("Scan the QR code with the iPhone's Camera: it opens Duo Mac in the browser.", systemImage: "camera.fill")
+                                .foregroundStyle(.secondary)
+                            InstallGuide(detected: model.phoneBrowser, phoneWidth: 100, listWidth: 230)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 4)
+                            Text("Then open Duo Mac from the Home Screen and click Allow on this Mac.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        .padding(.top, 6)
+                    } label: {
+                        Label("No Duo Mac app on the iPhone? Use it from the Home Screen", systemImage: "safari")
+                    }
                 }
                 Section {
-                    LabeledContent("Pairing code") {
-                        Text(model.pairCode).font(.system(.body, design: .monospaced).weight(.semibold)).textSelection(.enabled)
-                    }
                     LabeledContent("Link") {
                         HStack {
                             Text(model.url).font(.caption.monospaced()).lineLimit(1).truncationMode(.middle).foregroundStyle(.secondary)
@@ -449,6 +488,7 @@ struct AddPhonePage: View {
                         }
                     }
                     HStack {
+                        Text("A new code stops the old one from working.").font(.caption).foregroundStyle(.secondary)
                         Spacer()
                         Button("New Pairing Code…", action: actions.newPairingCode)
                     }
@@ -468,6 +508,41 @@ struct AddPhonePage: View {
             }
         }
         .formStyle(.grouped)
+    }
+}
+
+/// A numbered step: (1) Open Duo Mac on the iPhone.
+struct PairStep: View {
+    let n: Int
+    let text: LocalizedStringKey
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Text("\(n)").font(.caption.weight(.bold)).foregroundStyle(.white)
+                .frame(width: 20, height: 20).background(Circle().fill(.blue))
+            Text(text)
+        }
+    }
+}
+
+/// The pairing code in boxes, as the iPhone asks for it: ABCD – EFGH.
+struct PairCodeBoxes: View {
+    let code: String
+
+    var body: some View {
+        let chars = Array(code.replacingOccurrences(of: "-", with: ""))
+        HStack(spacing: 5) {
+            ForEach(Array(chars.enumerated()), id: \.offset) { i, c in
+                if i == 4 { Text("–").foregroundStyle(.secondary).padding(.horizontal, 2) }
+                Text(String(c))
+                    .font(.system(size: 20, weight: .semibold, design: .monospaced))
+                    .frame(width: 28, height: 36)
+                    .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Color.primary.opacity(0.08)))
+                    .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).strokeBorder(Color.primary.opacity(0.15)))
+            }
+        }
+        .textSelection(.enabled)
+        .accessibilityLabel("Pairing code \(code)")
     }
 }
 

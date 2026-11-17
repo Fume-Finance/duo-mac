@@ -1,5 +1,13 @@
 // The top half: draws the streamed Mac screen, handles local zoom, and (optionally) touch input on it.
 import { settings } from './settings.js';
+import { native } from './native.js';
+
+/** Bytes as base64, in chunks: messages to the iPhone app carry strings. */
+function b64(bytes) {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}
 
 async function decode(bytes) {
   const blob = new Blob([bytes], { type: 'image/jpeg' });
@@ -44,6 +52,10 @@ export class Screen {
     this.vNeedKey = true;     // waiting for a key frame
     this.vPending = new Map(); // frame id → { resolve, t0, bytes, cx, cy }, until decoded and drawn
     this.onNeedKey = null;    // ask the Mac for a key frame
+    // In the iPhone app, H.264 is decoded and shown by the app (NativeVideo.swift), behind this page:
+    // the canvas is left see-through and the app is told where it is.
+    this.nativeOn = false;
+    this.nativeRaf = 0;
   }
 
   /** Can this phone decode the Mac's H.264 video (WebCodecs, hardware)? */
@@ -92,7 +104,7 @@ export class Screen {
     w.transition = 'transform .3s cubic-bezier(.2, .8, .2, 1)';
     w.transform = '';
     clearTimeout(this.fitTimer);
-    this.fitTimer = setTimeout(() => { w.transition = ''; }, 350);
+    this.fitTimer = setTimeout(() => { w.transition = ''; if (this.nativeOn) this.placeNative(); }, 350);
   }
 
   layout() {
@@ -123,6 +135,57 @@ export class Screen {
     this.onLayout?.();
   }
 
+  // ───── The iPhone app's video ─────
+
+  setNative(on) {
+    if (this.nativeOn === on) return;
+    this.nativeOn = on;
+    document.documentElement.classList.toggle('native-video', on);
+    this.layout();
+    if (!on) this.placeNative();
+  }
+
+  /** Tells the app where the picture is (and the menu bar's narrower copy), once per frame at most. */
+  placeNative() {
+    if (!native?.video) return;
+    cancelAnimationFrame(this.nativeRaf);
+    this.nativeRaf = requestAnimationFrame(() => {
+      const r = this.canvas.getBoundingClientRect(), vv = window.visualViewport;
+      native.call({
+        t: 'vrect', on: this.nativeOn, x: r.left - (vv?.offsetLeft || 0), y: r.top - (vv?.offsetTop || 0), w: r.width, h: r.height,
+      }).catch(() => {});
+    });
+  }
+
+  nativeVideo(buf) {
+    const dv = new DataView(buf);
+    if (dv.getUint8(0) === 4) {
+      const n = dv.getUint8(1), w = dv.getUint16(2, true), h = dv.getUint16(4, true);
+      this.setSize(w, h);
+      this.setNative(true);
+      // Frames that follow go to the app in order, after this: they can be sent right away.
+      this.vReady = true;
+      this.vNeedKey = true;
+      native.call({ t: 'vconf', w, h, avcc: b64(new Uint8Array(buf, 6 + n)) })
+        .then((ok) => { if (!ok) this.videoFailed(new Error('the app couldn’t set up the decoder')); })
+        .catch((e) => this.videoFailed(e));
+      return Promise.resolve(null);
+    }
+    const t0 = performance.now();
+    const key = (dv.getUint8(1) & 1) === 1, id = dv.getUint32(4, true);
+    const cx = dv.getUint16(12, true), cy = dv.getUint16(14, true);
+    if (!this.vReady || (this.vNeedKey && !key)) {
+      if (!key) this.onNeedKey?.();
+      return Promise.resolve(id);
+    }
+    this.vNeedKey = false;
+    return native.call({ t: 'vframe', d: b64(new Uint8Array(buf, 16)) }).then((ok) => {
+      if (ok) this.shown(buf.byteLength, t0, cx, cy);
+      else if (this.vReady) this.videoFailed(new Error('the app couldn’t decode a frame'));
+      return id;
+    }).catch((e) => { this.videoFailed(e); return id; });
+  }
+
   // ───── Frames ─────
 
   /** Queues a frame; resolves with its id once drawn (frames are drawn strictly in order), or
@@ -142,6 +205,7 @@ export class Screen {
     const t0 = performance.now();
     const dv = new DataView(buf);
     if (dv.getUint8(0) !== 1) return 0;
+    if (this.nativeOn) this.setNative(false); // JPEG tiles: drawn here again
     const full = (dv.getUint8(1) & 1) === 1;
     const n = dv.getUint16(2, true);
     const id = dv.getUint32(4, true);
@@ -200,6 +264,7 @@ export class Screen {
   // [3] frame:       [3][flags: bit0 key][0 u16][id u32][w u16][h u16][pointer x u16][y u16][AVCC]
 
   video(buf) {
+    if (native?.video) return this.nativeVideo(buf);
     const dv = new DataView(buf);
     if (dv.getUint8(0) === 4) {
       const n = dv.getUint8(1), w = dv.getUint16(2, true), h = dv.getUint16(4, true);
@@ -307,6 +372,7 @@ export class Screen {
   applyZoom() {
     const z = this.zoom;
     this.wrap.style.transform = z.s === 1 ? '' : `translate(${z.x}px, ${z.y}px) scale(${z.s})`;
+    if (this.nativeOn) this.placeNative();
   }
 
   /** Pointer position in screen-area coordinates (unzoomed), or the centre. */
@@ -373,7 +439,8 @@ export class LidTouch {
     if (this.p.size === 1) {
       const near = now - this.lastTap.t < 350 && Math.hypot(e.clientX - this.lastTap.x, e.clientY - this.lastTap.y) < 30;
       this.g = { start: now, moved: false, count: near ? Math.min(3, this.lastTap.n + 1) : 1, primary: e.pointerId };
-      this.g.probe = this.cb.probe?.(...this.screen.normalized(e.clientX, e.clientY)) || 0; // a text field there?
+      // A text field there? (Not on the second tap of a double tap: that selects.)
+      this.g.probe = near ? 0 : this.cb.probe?.(...this.screen.normalized(e.clientX, e.clientY)) || 0;
       this.mode = 'one';
     } else if (this.p.size === 2 && (this.mode === 'one' || this.mode === 'pan') && !this.g.moved) {
       const [a, b] = [...this.p.values()];

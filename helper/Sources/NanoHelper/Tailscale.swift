@@ -30,6 +30,8 @@ final class Tailscale {
     ].first { FileManager.default.isExecutableFile(atPath: $0) }
 
     private let queue = DispatchQueue(label: "nano.tailscale")
+    /// Tailscale built into Duo Mac (BuiltinTailnet.swift), when chosen: asked instead of the app.
+    var builtin: BuiltinTailnet?
     private var lastEnableTry = Date.distantPast
 
     // MARK: Running the CLI
@@ -78,11 +80,28 @@ final class Tailscale {
     /// Blocking: call on `queue` (see `refresh`).
     private func check(port: UInt16, wantServe: Bool, previous: Status) -> Status {
         var st = Status()
-        guard Tailscale.cli != nil else { st.phase = .notInstalled; return st }
-        guard let r = Tailscale.run(["status", "--json"], timeout: 6), !r.timedOut,
-              let json = try? JSONSerialization.jsonObject(with: Data(r.text.utf8)) as? [String: Any] else {
-            st.phase = .notRunning
-            return st
+        let json: [String: Any]
+        if let b = builtin {
+            // While the Tailscale app still runs too, keep its address working (phones set up there).
+            if wantServe, Tailscale.cli != nil {
+                let target = "http://127.0.0.1:\(port)"
+                if let cur = Tailscale.run(["serve", "status", "--json"], timeout: 4), !cur.timedOut, cur.code == 0,
+                   !cur.text.contains(target),
+                   let r = Tailscale.run(["serve", "--bg", "--yes", "--https=443", target], timeout: 15), r.code == 0 {
+                    Log.info("Tailscale app: still serving its address too")
+                }
+            }
+            guard BuiltinTailnet.isInstalled else { st.phase = .notInstalled; return st }
+            guard let j = b.get("/status") else { st.phase = .starting; return st }
+            json = j
+        } else {
+            guard Tailscale.cli != nil else { st.phase = .notInstalled; return st }
+            guard let r = Tailscale.run(["status", "--json"], timeout: 6), !r.timedOut,
+                  let j = try? JSONSerialization.jsonObject(with: Data(r.text.utf8)) as? [String: Any] else {
+                st.phase = .notRunning
+                return st
+            }
+            json = j
         }
         let state = json["BackendState"] as? String ?? ""
         switch state {
@@ -112,6 +131,18 @@ final class Tailscale {
         let certs = (json["CertDomains"] as? [String] ?? []).map { $0.lowercased() }
         st.enableURL = previous.enableURL
 
+        if builtin != nil {
+            // It serves by itself once HTTPS certificates are on for the tailnet (admin console › DNS).
+            guard let dnsName = st.dnsName, magicDNS, certs.contains(dnsName) else {
+                st.phase = .needsHTTPS
+                st.detail = magicDNS ? "Turn on HTTPS Certificates in the Tailscale admin console (DNS)" : "MagicDNS is off"
+                return st
+            }
+            st.serving = wantServe
+            st.reachable = wantServe
+            st.phase = .ready
+            return st
+        }
         guard let dnsName = st.dnsName, magicDNS, certs.contains(dnsName) else {
             st.phase = .needsHTTPS
             st.detail = magicDNS ? nil : "MagicDNS is off"
@@ -196,9 +227,9 @@ final class Tailscale {
     func whois(_ ip: String, replyQueue: DispatchQueue, done: @escaping (String?) -> Void) {
         queue.async {
             var name: String?
-            if let r = Tailscale.run(["whois", "--json", ip], timeout: 5), !r.timedOut,
-               let json = try? JSONSerialization.jsonObject(with: Data(r.text.utf8)) as? [String: Any],
-               let node = json["Node"] as? [String: Any] {
+            let json: [String: Any]? = self.builtin.map { $0.get("/whois?ip=\(ip)") } ?? Tailscale.run(["whois", "--json", ip], timeout: 5)
+                .flatMap { $0.timedOut ? nil : try? JSONSerialization.jsonObject(with: Data($0.text.utf8)) as? [String: Any] }
+            if let node = json?["Node"] as? [String: Any] {
                 name = Tailscale.prettyName(dnsName: node["Name"] as? String,
                                             hostName: (node["Hostinfo"] as? [String: Any])?["Hostname"] as? String)
             }
@@ -221,9 +252,9 @@ final class Tailscale {
     func path(to ip: String, replyQueue: DispatchQueue, done: @escaping (Path?) -> Void) {
         queue.async {
             var path: Path?
-            if let r = Tailscale.run(["status", "--json"], timeout: 5), !r.timedOut,
-               let json = try? JSONSerialization.jsonObject(with: Data(r.text.utf8)) as? [String: Any],
-               let peers = json["Peer"] as? [String: Any] {
+            let json: [String: Any]? = self.builtin.map { $0.get("/status") } ?? Tailscale.run(["status", "--json"], timeout: 5)
+                .flatMap { $0.timedOut ? nil : try? JSONSerialization.jsonObject(with: Data($0.text.utf8)) as? [String: Any] }
+            if let peers = json?["Peer"] as? [String: Any] {
                 for case let p as [String: Any] in peers.values where (p["TailscaleIPs"] as? [String] ?? []).contains(ip) {
                     let cur = p["CurAddr"] as? String ?? ""
                     path = Path(direct: !cur.isEmpty, ipv6: cur.hasPrefix("["), relay: p["Relay"] as? String ?? "")

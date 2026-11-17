@@ -82,7 +82,8 @@ export class Trackpad {
       const quick = now - this.lastTap.t < MULTI_TAP_MS &&
         Math.hypot(e.clientX - this.lastTap.x, e.clientY - this.lastTap.y) < MULTI_TAP_DIST;
       this.g = { start: now, moved: false, stopper: stoppedMomentum, followsTap: quick, armed: false, primary: e.pointerId };
-      this.g.probe = this.cb.probe?.() || 0; // a text field under the pointer?
+      // A text field under the pointer? (Not on the second tap of a double tap: that selects.)
+      this.g.probe = quick ? 0 : this.cb.probe?.() || 0;
       this.mode = 'one';
       clearTimeout(this.holdTimer);
       if (!stoppedMomentum) this.holdTimer = setTimeout(() => this.arm(), HOLD_MS);

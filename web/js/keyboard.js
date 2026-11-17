@@ -6,6 +6,7 @@
 // a long press on it opens the iPhone's own keyboard (dictation, emoji…).
 import { settings } from './settings.js';
 import { addHapticSwitch } from './haptics.js';
+import { appKeysFor, MAX_APP_KEYS } from './appkeys.js';
 
 export const MOD = { shift: 1, control: 2, option: 4, command: 8 };
 
@@ -82,6 +83,8 @@ function rows(iso) {
   const M = (c, w, mod, sym, label, align) => ({ c, w, kind: 'mod', mod, sym, label, align });
   const fnRow = [S(0x35, 1.5, 'esc', 'l', { esc: true })];
   for (let n = 1; n <= 12; n++) fnRow.push({ c: F_CODES[n], w: 1, kind: 'fn', n });
+  // The app in front's keys (appkeys.js) share the 12 keys' room; fn swaps in F1–F12.
+  for (let i = 0; i < MAX_APP_KEYS; i++) fnRow.push({ c: -1, w: 1, kind: 'appk', slot: i });
   fnRow.push({ c: -1, w: 1, kind: 'power' });
   return [
     fnRow,
@@ -115,6 +118,7 @@ export class Keyboard {
     this.caps = false;
     this.mods = { shift: newMod(), control: newMod(), option: newMod(), command: newMod(), fn: newMod() };
     this.popKey = null;
+    this.appKeys = appKeysFor(null);
 
     root.addEventListener('pointerdown', (e) => {
       const el = e.target.closest('.key');
@@ -164,6 +168,7 @@ export class Keyboard {
     rows(this.iso).forEach((row, i) => {
       const r = document.createElement('div');
       r.className = i === 0 ? 'row fnrow' : 'row';
+      if (i === 0) this.fnRowEl = r;
       for (const k of row) r.appendChild(k.kind === 'arrows' ? this.makeArrows(k) : this.makeKey(k));
       this.root.appendChild(r);
     });
@@ -172,6 +177,26 @@ export class Keyboard {
     this.refreshLabels();
     this.renderMods();
     this.renderFnRow();
+    this.renderAppKeys();
+  }
+
+  /** The Mac switched apps: the top row shows the new one's keys (in place: a key held down stays down). */
+  setApp(app) {
+    this.appKeys = appKeysFor(app);
+    this.renderAppKeys();
+  }
+
+  renderAppKeys() {
+    const list = this.appKeys.slice(0, MAX_APP_KEYS);
+    for (const k of this.keys) {
+      if (k.kind !== 'appk') continue;
+      const a = list[k.slot];
+      if (!k.down) k.app = a;
+      k.el.classList.toggle('off', !a);
+      if (!a) continue;
+      k.lab.textContent = a.l;
+      k.el.style.setProperty('--w', 12 / list.length);
+    }
   }
 
   makeKey(spec) {
@@ -209,6 +234,11 @@ export class Keyboard {
       case 'fn':
         el.classList.add('fn');
         el.innerHTML = `${ICONS[FN_DEFS[k.n].icon]}<span class="fl">F${k.n}</span>`;
+        break;
+      case 'appk':
+        el.classList.add('appk');
+        el.innerHTML = '<span class="al"></span>';
+        k.lab = el.firstChild;
         break;
       case 'power':
         el.classList.add('power');
@@ -283,6 +313,7 @@ export class Keyboard {
   renderFnRow() {
     const standard = settings.fnStandard ? !this.active('fn') : this.active('fn');
     for (const k of this.keys) if (k.kind === 'fn') k.el.classList.toggle('flabel', standard);
+    this.fnRowEl?.classList.toggle('apps', !standard);
   }
 
   renderMods() {
@@ -354,6 +385,9 @@ export class Keyboard {
       case 'fn':
         this.pressFn(k);
         return;
+      case 'appk':
+        this.pressAppKey(k);
+        return;
       default:
         this.pressKey(k);
     }
@@ -415,6 +449,18 @@ export class Keyboard {
     this.cb.feedback?.(k.space ? 'space' : 'key');
     if (k.kind === 'char' || k.space) this.showPop(k, mask);
     this.startRepeat(k, () => this.cb.onKey(code, true, mask, true));
+  }
+
+  pressAppKey(k) {
+    const a = k.app;
+    if (!a) return;
+    this.markUsed();
+    this.cb.feedback?.('key');
+    if (a.act) return this.cb.onAction(a.act);
+    const [code, mods] = a.k;
+    const mask = mods | this.mask();
+    k.down = { code, mask };
+    this.cb.onKey(code, true, mask, false);
   }
 
   pressFn(k) {

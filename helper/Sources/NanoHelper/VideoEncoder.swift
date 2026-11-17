@@ -47,9 +47,12 @@ final class H264Encoder {
     private var detail = Detail.normal
     private(set) var bitrate: Int
 
-    init?(width: Int, height: Int, bitrate: Int) {
+    let fps: Int
+
+    init?(width: Int, height: Int, bitrate: Int, fps: Int = 60) {
         self.width = width
         self.height = height
+        self.fps = fps
         self.bitrate = bitrate
         let spec = [kVTVideoEncoderSpecification_EnableLowLatencyRateControl: true] as CFDictionary
         var s: VTCompressionSession?
@@ -73,6 +76,7 @@ final class H264Encoder {
         set(kVTCompressionPropertyKey_TransferFunction, kCVImageBufferTransferFunction_ITU_R_709_2)
         set(kVTCompressionPropertyKey_YCbCrMatrix, kCVImageBufferYCbCrMatrix_ITU_R_709_2)
         set(kVTCompressionPropertyKey_AverageBitRate, bitrate as CFNumber)
+        set(kVTCompressionPropertyKey_ExpectedFrameRate, fps as CFNumber)
         VTCompressionSessionPrepareToEncodeFrames(s)
     }
 
@@ -108,7 +112,7 @@ final class H264Encoder {
             for (k, v) in detail == .coarse ? limits.reversed() : limits { VTSessionSetProperty(s, key: k, value: v as CFNumber) }
         }
         frames += 1
-        let pts = CMTime(value: frames, timescale: 60)
+        let pts = CMTime(value: frames, timescale: CMTimeScale(fps))
         let props = key ? [kVTEncodeFrameOptionKey_ForceKeyFrame: true] as CFDictionary : nil
         let status = VTCompressionSessionEncodeFrame(s, imageBuffer: pb, presentationTimeStamp: pts, duration: .invalid,
                                                      frameProperties: props, infoFlagsOut: nil) { status, flags, sb in

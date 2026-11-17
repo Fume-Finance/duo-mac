@@ -19,6 +19,16 @@ xattr -c "build/.bin/Duo Mac" 2>/dev/null || true
 codesign --force --sign - "build/.bin/Duo Mac"
 ln -s ".bin/Duo Mac" "build/Duo Mac"
 
+# Built-in Tailscale (helper/tailnet, Go): optional, for a Mac without the Tailscale app.
+if command -v go >/dev/null 2>&1; then
+  echo "▸ Building built-in Tailscale…"
+  if (cd helper/tailnet && GOTOOLCHAIN=auto go build -trimpath -o "../../build/.bin/duo-mac-tailnet" .) > build/tailnet-build.log 2>&1; then
+    codesign --force --sign - build/.bin/duo-mac-tailnet 2>/dev/null || true
+  else
+    echo "  (skipped: see build/tailnet-build.log)"
+  fi
+fi
+
 if [ ! -f web/icon-mac.png ] || [ ! -d build/AppIcon.iconset ]; then
   echo "▸ Drawing icons…"
   swift tools/make-icons.swift "$PWD"
@@ -37,6 +47,10 @@ echo "▸ Installing to $INSTALL"
 mkdir -p "$INSTALL/.bin"
 cp "build/.bin/Duo Mac" "$INSTALL/.bin/Duo Mac.new"
 mv -f "$INSTALL/.bin/Duo Mac.new" "$INSTALL/.bin/Duo Mac"
+if [ -x build/.bin/duo-mac-tailnet ]; then
+  cp build/.bin/duo-mac-tailnet "$INSTALL/.bin/duo-mac-tailnet.new"
+  mv -f "$INSTALL/.bin/duo-mac-tailnet.new" "$INSTALL/.bin/duo-mac-tailnet"
+fi
 [ -L "$INSTALL/Duo Mac" ] || { rm -f "$INSTALL/Duo Mac"; ln -s ".bin/Duo Mac" "$INSTALL/Duo Mac"; }
 rsync -a --delete web/ "$INSTALL/web/"
 # The Duo Mac Microphone driver: installed into the system by Duo Mac itself (Settings › General),
