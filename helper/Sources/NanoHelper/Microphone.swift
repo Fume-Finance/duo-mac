@@ -186,14 +186,21 @@ final class Microphone {
         AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &a, .main) { [weak self] _, _ in
             self?.giveBackDefaultInput()
         }
+        // And now and then: macOS can fall back to it without saying so (headphones leaving, the Mac waking).
+        Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in self?.giveBackDefaultInput() }
     }
 
-    private func giveBackDefaultInput() {
+    private func giveBackDefaultInput(builtIn: Bool = false) {
         guard !active, let mic = Microphone.deviceID(), Microphone.defaultInput() == mic else { return }
         let saved = UserDefaults.standard.string(forKey: Microphone.previousKey).flatMap { Microphone.deviceID($0) }
-        guard let back = (saved != mic ? saved : nil) ?? Microphone.builtInInput() else { return }
+        guard let back = (builtIn ? nil : saved != mic ? saved : nil) ?? Microphone.builtInInput() else { return }
         Microphone.setDefaultInput(back)
         Log.info("Microphone: the Mac's input is \(Microphone.name(of: back) ?? "its own microphone") again")
+        // Headphones listed but gone (AirPods with another device): macOS falls back to the silent Duo Mac
+        // Microphone. Then the Mac's own microphone.
+        if !builtIn {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.giveBackDefaultInput(builtIn: true) }
+        }
     }
 
     static func uid(of id: AudioDeviceID) -> String? { stringProperty(id, kAudioDevicePropertyDeviceUID) }
