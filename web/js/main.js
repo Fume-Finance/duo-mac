@@ -510,7 +510,6 @@ function keyboardSplit() {
   const u = (W - 6) / 15.6, deckH = u * KB_UNITS + Math.max(9, H * 0.035) + Math.max(6, safeArea().bottom * 0.75) + 4;
   return Math.max(0.4, Math.min(0.8, 1 - deckH / H));
 }
-setAutoSplit(keyboardSplit);
 // The keyboard's height in key units: 5 rows + the top row (0.8) + gaps and the well around them.
 const KB_UNITS = 6.54;
 
@@ -525,6 +524,8 @@ function split() {
   if (seg?.length === 2 && seg[0].height < innerHeight * 0.9) return (seg[0].y + seg[0].height) / innerHeight;
   return innerHeight / innerWidth > 1.8 ? 0.56 : 0.5;
 }
+
+setAutoSplit(split); // Settings shows the split in use, whichever layout
 
 function layout() {
   const H = app.clientHeight || window.innerHeight;

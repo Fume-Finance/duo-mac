@@ -96,6 +96,27 @@ function macsGroup(m) {
   </div></div>`;
 }
 
+/** Makes `a`'s children look like `b`'s, touching only the nodes that differ. */
+function patchChildren(a, b) {
+  const an = [...a.childNodes], bn = [...b.childNodes];
+  if (an.length !== bn.length) return a.replaceChildren(...bn);
+  an.forEach((n, i) => patch(n, bn[i]));
+}
+function patch(a, b) {
+  if (a.nodeType !== b.nodeType || a.nodeName !== b.nodeName) return a.replaceWith(b);
+  if (a.nodeType !== 1) { if (a.nodeValue !== b.nodeValue) a.nodeValue = b.nodeValue; return; }
+  if (a.isEqualNode(b)) return;
+  for (const at of [...a.attributes]) if (!b.hasAttribute(at.name)) a.removeAttribute(at.name);
+  let changed = false;
+  for (const at of [...b.attributes]) if (a.getAttribute(at.name) !== at.value) { a.setAttribute(at.name, at.value); changed = true; }
+  // A control shows its current value, not its attribute: set it too (unless it's being used).
+  if (changed && (a.tagName === 'INPUT' || a.tagName === 'SELECT') && a !== document.activeElement) {
+    a.value = b.value;
+    a.checked = b.checked;
+  }
+  patchChildren(a, b);
+}
+
 /** A small picture of the Mac: from its model, else its name ("Fabio's iMac"); a MacBook if neither says. */
 function macPicture(x) {
   const s = `${x.product || ''} ${x.name || ''} ${x.host}`.toLowerCase();
@@ -224,14 +245,14 @@ function duoArt(share, padOnly = false) { // padOnly: true = Trackpad layout, 'k
   return out + '</svg>';
 }
 
-/** The Keyboard layout's automatic split (main.js sets it: just enough room for the keys). */
+/** The split in use when it's automatic (main.js sets it: the layout's own, or the fold's). */
 export let autoSplit = null;
 export function setAutoSplit(f) { autoSplit = f; }
 
 function splitSlider() {
   // Laptop and Trackpad layouts each remember their own split.
   const key = { trackpad: 'hingePad', keyboard: 'hingeKb' }[settings.layout] || 'hinge';
-  const v = settings[key] ?? autoSplit?.() ?? (innerHeight / innerWidth > 1.8 ? 0.56 : 0.5);
+  const v = settings[key] ?? autoSplit?.() ?? 0.5;
   // Right to left, so the side with more screen is on the left, like its picture.
   const pad = settings.layout === 'trackpad' ? true : settings.layout === 'keyboard' ? 'kb' : false, what = pad === true ? 'trackpad' : 'keyboard';
   return `<div class="item split-item"><span class="l">Screen / ${what} split<small>On a foldable, match it to the fold</small></span>
@@ -378,16 +399,7 @@ export class Sheet {
   update(info) {
     this.info = info;
     if (this.isOpen) {
-      const scroll = this.el.querySelector('.panel')?.scrollTop || 0;
-      // Keep the pictures already shown (decoding them again on every refresh made them flicker).
-      const pics = new Map([...this.el.querySelectorAll('img')].map((im) => [im.getAttribute('src'), im]));
       this.render();
-      for (const im of this.el.querySelectorAll('img')) {
-        const old = pics.get(im.getAttribute('src'));
-        if (old) { im.replaceWith(old); pics.delete(old.getAttribute('src')); }
-      }
-      const p = this.el.querySelector('.panel');
-      if (p) p.scrollTop = scroll;
     }
   }
 
@@ -515,6 +527,13 @@ export class Sheet {
     // Nothing changed (the connection's updates come often): leave it as it is, so nothing blinks.
     if (html === this.html && this.el.firstElementChild) return;
     this.html = html;
-    this.el.innerHTML = html;
+    // Open already: change only what changed, so scrolling (and its glide) and pictures carry on.
+    if (this.el.querySelector('.panel')) {
+      const t = document.createElement('template');
+      t.innerHTML = html;
+      patchChildren(this.el, t.content);
+    } else {
+      this.el.innerHTML = html;
+    }
   }
 }
