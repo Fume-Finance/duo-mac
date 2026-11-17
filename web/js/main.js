@@ -424,6 +424,7 @@ function sheetInfo() {
     displays: cfg?.displays, displayIndex: cfg?.displayIndex, nanoActive: !!cfg?.nano,
     layout: cfg?.keyboard?.layout, connected: link.open, rtt: link.rtt, device, micInstalled: cfg?.mic?.installed, micUpdate: cfg?.mic?.update, micOn: mic.running,
     route: link.open ? link.route : '', localReady: !!link.local, localTrusted, tailnet, whisper: whisperStatus,
+    nanoSizes: cfg?.nanoSizes, fps: lastStats.fps, kbps: lastStats.kbps,
     path: link.open && link.route === 'tailscale' ? tsPath : null,
   };
 }
@@ -1723,9 +1724,11 @@ window.addEventListener('pagehide', () => link.send({ t: 'rel' }));
 
 // ───── Stats overlay ─────
 let prev = { frames: 0, bytes: 0, decodeMs: 0 };
+let lastStats = { fps: 0, kbps: 0 };
 setInterval(() => {
   const f = screen.frames - prev.frames, b = screen.bytes - prev.bytes, d = screen.decodeMs - prev.decodeMs;
   prev = { frames: screen.frames, bytes: screen.bytes, decodeMs: screen.decodeMs };
+  lastStats = { fps: f, kbps: Math.round(b / 1024) };
   if (!settings.stats) return;
   statsEl.hidden = false;
   statsEl.innerHTML = `<b>${f}</b> fps · <b>${(b / 1024).toFixed(0)}</b> KB/s · <b>${Math.round(link.rtt)}</b> ms`;

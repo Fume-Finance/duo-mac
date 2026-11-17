@@ -3,12 +3,63 @@ import { settings, setSetting } from './settings.js';
 import { native } from './native.js';
 import { ICONS } from './appkeys.js';
 
+/** A switch with a coloured icon in front, like iOS Settings. */
+function iconToggle(key, label, note, icon, color) {
+  return `<div class="item icon-item"><span class="ico" style="background:${color}">${icon}</span>
+    <label for="s-${key}">${label}${note ? `<small>${note}</small>` : ''}</label>
+    <input type="checkbox" switch id="s-${key}" data-k="${key}" ${settings[key] ? 'checked' : ''}></div>`;
+}
+const I24 = (body) => `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
+const SPEAKER_ICON = I24('<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" fill="currentColor" stroke="none"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/>');
+const CHIME_ICON = I24('<path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5" fill="currentColor" stroke="none"/><circle cx="16.5" cy="16" r="2.5" fill="currentColor" stroke="none"/>');
+const STATS_ICON = I24('<path d="M5 19V12M10 19V7M15 19v-5M20 19V9"/>');
+const CLICK_ICON = I24('<rect x="3" y="7" width="18" height="11" rx="2"/><path d="M7 11h.5M10.5 11h.5M14 11h.5M8 14.5h8"/>');
+const HAPTIC_ICON = I24('<rect x="8" y="3" width="8" height="18" rx="2"/><path d="M4 9v6M20 9v6"/>');
+const CLIP_ICON = I24('<rect x="6" y="4" width="12" height="17" rx="2"/><path d="M9.5 4V3h5v1M9 10h6M9 14h4"/>');
+
+/** The keyboard's top row: the Mac app's keys (icons), or F1–F12. */
+function topRowArt(fkeys) {
+  const n = 5, kw = 12.4, gap = 1.6, x0 = 4.5;
+  const keys = [...Array(n)].map((_, i) => `<rect x="${x0 + i * (kw + gap)}" y="13" width="${kw}" height="14" rx="2.2" class="win"/>`).join('');
+  const cx = (i) => x0 + i * (kw + gap) + kw / 2;
+  const marks = fkeys
+    ? [...Array(n)].map((_, i) => `<text x="${cx(i)}" y="22.5" class="fk" text-anchor="middle">F${i + 1}</text>`).join('')
+    : [`M${cx(0) + 1.5} 17l-3 3 3 3`, `M${cx(1) - 3} 20a3 3 0 1 0 1-2.2M${cx(1) - 2} 16.8v1.6h1.6`, `M${cx(2) - 3} 20h6M${cx(2)} 17v6`,
+      `M${cx(3) - 2.5} 17.5h5v5h-5z`, `M${cx(4) - 2} 17.5h4v5h-4zM${cx(4) - 1} 17.5v-1h2v1`].map((d) => `<path d="${d}" class="km"/>`).join('');
+  const below = [...Array(n)].map((_, i) => `<rect x="${x0 + i * (kw + gap)}" y="30" width="${kw}" height="12" rx="2.2" class="dk"/>`).join('');
+  return `<svg viewBox="0 0 80 50">${keys}${marks}${below}</svg>`;
+}
+/** The trackpad, with or without the shortcut buttons on each side. */
+function padArt(withButtons) {
+  const side = (x) => [0, 1, 2].map((i) => `<rect x="${x}" y="${11 + i * 11}" width="8" height="8" rx="2" class="win"/>`).join('');
+  return `<svg viewBox="0 0 80 50"><rect x="${withButtons ? 17 : 8}" y="7" width="${withButtons ? 46 : 64}" height="36" rx="5" class="frame"/>
+    ${withButtons ? side(5) + side(67) : ''}</svg>`;
+}
+/** Dictation: Apple's (words appear as you speak) or Whisper's (any language, all at once). */
+function dictArt(whisper) {
+  return whisper
+    ? `<svg viewBox="0 0 80 50"><circle cx="24" cy="25" r="13" class="frame"/><path d="M11 25h26M24 12c-5 4-5 22 0 26M24 12c5 4 5 22 0 26" class="km"/>
+       <path d="M46 25h2M51 19v12M56 15v20M61 20v10M66 23v4" class="wave"/></svg>`
+    : `<svg viewBox="0 0 80 50"><rect x="8" y="10" width="64" height="22" rx="8" class="frame"/>
+       <rect x="15" y="17" width="20" height="3" rx="1.5" class="ln"/><rect x="38" y="17" width="12" height="3" rx="1.5" class="ln"/><rect x="15" y="23" width="14" height="3" rx="1.5" class="ln"/><rect x="31" y="22.5" width="2" height="4" class="caret"/>
+       <path d="M30 40h2M34 37v6M38 35v10M42 37v6M46 39v2" class="wave"/></svg>`;
+}
+/** Touching the screen in the Laptop/Trackpad layouts: a tap clicks there, or nothing. */
+function tapArt(on) {
+  return `<svg viewBox="0 0 80 50"><rect x="14" y="2" width="52" height="46" rx="5" class="frame"/>${desk(16, 4, 48, 42)}
+    <rect x="24" y="13" width="32" height="22" rx="1.5" class="win"/>
+    ${on ? '<circle cx="42" cy="24" r="7" class="tring"/><circle cx="42" cy="24" r="4.5" class="tip"/>'
+      : '<circle cx="42" cy="24" r="4.5" class="tip" opacity=".35"/><path d="M34 32 50 16" class="cross"/>'}</svg>`;
+}
+
 /** Full screen: which buttons show next to the settings one (which always does). Tap to turn each on or off. */
 const TOOL_BUTTONS = [['copy', 'Copy'], ['paste', 'Paste'], ['undo', 'Undo'], ['redo', 'Redo'], ['screenshot', 'Screenshot'], ['dictate', 'Dictate'], ['keyboard', 'Keyboard']];
 function toolButtonsRow() {
   const on = new Set(String(settings.toolButtons).split(','));
-  return `<div class="item cards-item"><span class="l">Full-screen buttons<small>Folded or sideways. Tap to show or hide each; ⚙︎ always stays.</small></span>
-    <div class="chips">${TOOL_BUTTONS.map(([id, t]) => `<button type="button" data-tool="${id}" class="chip ${on.has(id) ? 'on' : ''}">${ICONS[id] || ''}<span>${t}</span></button>`).join('')}</div></div>`;
+  const gear = '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" d="M12.95 6.79L14.62 7L14.62 9L12.95 9.21L12.36 10.65L13.39 11.98L11.98 13.39L10.65 12.36L9.21 12.95L9 14.62L7 14.62L6.79 12.95L5.35 12.36L4.02 13.39L2.61 11.98L3.64 10.65L3.05 9.21L1.38 9L1.38 7L3.05 6.79L3.64 5.35L2.61 4.02L4.02 2.61L5.35 3.64L6.79 3.05L7 1.38L9 1.38L9.21 3.05L10.65 3.64L11.98 2.61L13.39 4.02L12.36 5.35Z"/><circle cx="8" cy="8" r="2.1" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>';
+  return `<div class="item cards-item"><span class="l">Full-screen buttons<small>Folded or sideways. Tap one to show or hide it; ⚙︎ always stays.</small></span>
+    <div class="tiles">${TOOL_BUTTONS.map(([id, t]) => `<button type="button" data-tool="${id}" class="tile ${on.has(id) ? 'on' : ''}"><span class="ti">${ICONS[id] || ''}</span><span class="tl">${t}</span></button>`).join('')}
+      <span class="tile on fixed"><span class="ti">${gear}</span><span class="tl">Settings</span></span></div></div>`;
 }
 
 /** The iPhone app: Apple's dictation or Whisper's, and how Whisper's model is doing. */
@@ -22,8 +73,7 @@ function dictationRow(w) {
   }[w.state] || '';
   const note = whisper ? `Most accurate, any language; types it all when you stop. Its model is 630 MB, downloaded once.${status}`
     : 'Fast, shows the words as you speak; in the iPhone’s language.';
-  return `<div class="item"><span class="l">Dictation<small>${note}</small></span><div class="seg" data-seg="dictationEngine">${
-    [['apple', 'Apple'], ['whisper', 'Whisper']].map(([v, t]) => `<button type="button" data-val="${v}" class="${settings.dictationEngine === v ? 'on' : ''}">${t}</button>`).join('')}</div></div>`;
+  return cards('dictationEngine', 'Dictation', [['apple', 'Apple · fast', dictArt(false)], ['whisper', 'Whisper · accurate', dictArt(true)]], note);
 }
 
 /** The iPhone app's own Tailscale (ios/DuoMac/Tailnet.swift). */
@@ -84,12 +134,6 @@ function touchArt(pad) {
        <path d="M44 41 L56 33" class="trail"/><circle cx="57" cy="32" r="4.5" class="tip"/>`
     : `<circle cx="42" cy="24" r="7" class="tring"/><circle cx="42" cy="24" r="4.5" class="tip"/>`;
   return out + '</svg>';
-}
-
-/** The Mac's screen, with or without the notch in the top middle. */
-function notchArt(on) {
-  return `<svg viewBox="0 0 80 50"><rect x="4" y="5" width="72" height="40" rx="4" class="frame"/>${desk(6, 7, 68, 36)}
-    ${on ? '<path d="M29 7h22v6.5a2.4 2.4 0 0 1-2.4 2.4H31.4a2.4 2.4 0 0 1-2.4-2.4z" class="notch"/>' : ''}</svg>`;
 }
 
 /** Folded: the cover screen shows a closed lid, or the Mac (the whole screen a trackpad). */
@@ -158,19 +202,6 @@ function splitSlider() {
 }
 
 const qualityArt = (emoji, blur) => `<span class="q"><span class="qe">${emoji}</span><span class="qs" style="filter:blur(${blur}px)">Aa</span></span>`;
-
-/** The keyboard half: a MacBook's, with margins and speaker grilles, or edge to edge (bigger keys). */
-function keysArt(full) {
-  const n = 10, x0 = full ? 6 : 15, w = full ? 68 : 50, g = full ? 1 : 0.9, kw = (w - (n - 1) * g) / n, kh = full ? 5 : 4.2;
-  let out = `<svg viewBox="0 0 80 50" class="${settings.theme === 'silver' ? 'silver' : 'black'}"><rect x="4" y="3" width="72" height="44" rx="5" class="deck"/>`;
-  for (let r = 0; r < 4; r++) for (let i = 0; i < n; i++) {
-    out += `<rect x="${(x0 + i * (kw + g)).toFixed(2)}" y="${(6 + r * (kh + g)).toFixed(2)}" width="${kw.toFixed(2)}" height="${kh}" rx="0.9" class="k"/>`;
-  }
-  const padTop = 6 + 4 * (kh + g) + 1.5, pw = w * 0.8;
-  out += `<rect x="${(40 - pw / 2).toFixed(2)}" y="${padTop.toFixed(2)}" width="${pw.toFixed(2)}" height="${(44.5 - padTop).toFixed(2)}" rx="2" class="pad"/>`;
-  if (!full) for (const x of [8.5, 69.5]) for (let r = 0; r < 7; r++) for (const dx of [0, 2]) out += `<circle cx="${x + dx}" cy="${7 + r * 3}" r=".6" class="dot"/>`;
-  return out + '</svg>';
-}
 
 function keyboardArt(silver) {
   const rows = [0, 1, 2, 3].map((r) => [...Array(10)].map((_, i) => `<rect x="${9 + i * 6.3}" y="${7 + r * 6.3}" width="5.3" height="5.3" rx="1" class="k"/>`).join('')).join('');
@@ -356,20 +387,16 @@ export class Sheet {
   </div></div>
 
   <div class="group"><h3>Keyboard</h3><div class="box">
-    ${toggle('sounds', 'Key clicks')}
+    ${iconToggle('sounds', 'Key clicks', '', CLICK_ICON, 'linear-gradient(#8e8e93, #636366)')}
     ${settings.sounds ? slider('volume', 'Volume', 0, 1, 0.05, FMT.volume) : ''}
-    ${toggle('haptics', 'Haptic taps', 'Keys and trackpad taps, felt as you lift your finger')}
-    ${toggle('fnStandard', 'Top row: F1–F12 instead of the Mac app’s keys', 'fn switches between them')}
-    ${toggle('padButtons', 'Buttons beside the trackpad', 'Trackpad layout: copy, paste, undo, redo, dictate and return')}
+    ${iconToggle('haptics', 'Haptic taps', 'Keys and trackpad taps', HAPTIC_ICON, 'linear-gradient(#bf5af2, #9b40d0)')}
+    ${cards('fnStandard', 'Top row', [['false', 'Mac app keys', topRowArt(false)], ['true', 'F1–F12', topRowArt(true)]], 'fn switches to the other one')}
+    ${cards('padButtons', 'Beside the trackpad', [['true', 'Shortcut buttons', padArt(true)], ['false', 'Just the trackpad', padArt(false)]], 'Trackpad layout: copy, paste, undo, redo, dictate, return')}
     ${toolButtonsRow()}
-    ${settings.layout === 'laptop' ? cards('keyboardSize', 'Size', [['full', 'Edge to edge', keysArt(true)], ['macbook', 'MacBook', keysArt(false)]],
-      settings.keyboardSize === 'macbook' ? 'Margins and speaker grilles, like a MacBook' : 'As wide as the iPhone: bigger keys and trackpad') : ''}
-    <div class="item"><span class="l">iPhone keyboard<small>Dictation, emoji, accents. Or hold the 🌐 fn key.</small></span>
-      <button type="button" class="btn" data-act="iosKeyboard">Type…</button></div>
   </div></div>
 
   <div class="group"><h3>Sound</h3><div class="box">
-    ${toggle('macSound', 'Play the Mac’s sound here', 'Music, videos, calls and alerts from the Mac, on this iPhone’s speaker')}
+    ${iconToggle('macSound', 'Play the Mac’s sound here', 'Music, videos, calls and alerts from the Mac, on this iPhone’s speaker', SPEAKER_ICON, 'linear-gradient(#5ac8fa, #0a84ff)')}
     <div class="item icon-item"><span class="ico mic-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" fill="currentColor"/><path d="M6 11a6 6 0 0 0 12 0M12 17v3.5M9 20.5h6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
       <label for="s-mic">Use this iPhone’s microphone${i.micInstalled === false
         ? `<small class="warn">⚠︎ Not on your Mac yet. ${i.micUpdate ? 'Update' : 'Add'} the Duo Mac Microphone there: menu bar › Settings… › General › ${i.micUpdate ? 'Update…' : 'Install…'}</small>`
@@ -380,16 +407,15 @@ export class Sheet {
 
   <div class="group"><h3>Display</h3><div class="box">
     ${cards('macDisplay', 'Mac screen', [['nano', 'Fill', fillArt], ['mirror', 'Mirror as is', mirrorArt]])}
-    ${nano ? cards('nanoSize', 'Desktop size', [['large', 'Larger text', sizeArt(4.2)], ['default', 'Default', sizeArt(3)], ['more', 'More space', sizeArt(2.1)]]) : ''}
+    ${nano ? cards('nanoSize', 'Desktop size', [['large', 'Larger text', sizeArt(4.2)], ['default', 'Default', sizeArt(3)], ['more', 'More space', sizeArt(2.1)]]
+      .map(([v, t, a]) => [v, i.nanoSizes?.[v] ? `${t}<small class="res">${i.nanoSizes[v][0]} × ${i.nanoSizes[v][1]}</small>` : t, a])) : ''}
     ${nano && document.getElementById('app')?.classList.contains('tall-top')
       ? cards('topEdge', 'Top edge', [['clear', 'Below the clock', topArt(false)], ['full', 'Full screen', topArt(true)]], 'Full screen: the clock covers the Mac’s top-right corner')
       : ''}
     ${nano ? `<div class="item"><span class="l"><small>The Mac gets a display shaped exactly like this screen, and its own screen mirrors it (with black bars). Your windows may rearrange when it switches on or off.</small></span></div>` : ''}
     ${displays}
     ${cards('quality', 'Quality', [['fast', 'Fast', qualityArt('🐇', 1.6)], ['balanced', 'Balanced', qualityArt('🐈', 0.6)], ['sharp', 'Sharp', qualityArt('🐌', 0)]], 'Faster and softer, or slower and crisper')}
-    ${toggle('video', 'Video compression', 'H.264: smoother on slow connections, less data. Turn off if the picture looks wrong.')}
-    ${native ? toggle('clipSync', 'Shared clipboard', 'Copy on the Mac, paste on the iPhone, and back. Text and pictures.') : ''}
-    ${native?.video && native.maxFPS > 60 ? toggle('smooth', 'Smooth (120 fps)', 'As smooth as this screen goes. Off: 60 fps, less work for the Mac and less data.') : ''}
+    ${native ? iconToggle('clipSync', 'Shared clipboard', 'Copy on the Mac, paste on the iPhone, and back. Text and pictures.', CLIP_ICON, 'linear-gradient(#ffd60a, #ff9f0a)') : ''}
     ${cards('layout', 'Layout', [['laptop', 'Laptop', duoArt(0.5)], ['trackpad', 'Trackpad', duoArt(0.5, true)], ['screen', 'Screen only', duoArt(1)]],
       `${{ laptop: 'Keyboard and trackpad below the screen.', trackpad: 'Just a big trackpad below the screen. Tap a text field, or ⌨︎, to type.', screen: 'All screen. Tap a text field, or ⌨︎, to type.' }[settings.layout] || ''} With the iPhone upright. Turned sideways${settings.seenDuo ? ' or folded' : ''}, it’s all screen and the whole screen is a trackpad.`)}
     ${settings.layout === 'screen'
@@ -397,18 +423,13 @@ export class Sheet {
         settings.screenTouch === 'trackpad'
           ? 'The whole screen is a trackpad: slide to move the pointer, tap to click, two fingers scroll, three or four swipe.'
           : 'Tap where you want to click, drag to drag. Two fingers scroll, three or four swipe.')
-      : toggle('touchscreen', 'Touch screen', 'Tap the screen to click there')}
+      : cards('touchscreen', 'Touching the screen', [['true', 'Tap to click', tapArt(true)], ['false', 'Ignore', tapArt(false)]], 'Laptop and Trackpad layouts')}
     ${settings.layout === 'laptop' ? cards('theme', 'Finish', [['spaceblack', 'Space Black', keyboardArt(false)], ['silver', 'Silver', keyboardArt(true)]]) : ''}
     ${settings.layout !== 'screen' ? splitSlider() : ''}
-    ${cards('notch', 'Notch', [['false', 'No notch', notchArt(false)], ['true', 'Notch', notchArt(true)]],
-      settings.topEdge === 'full' && document.getElementById('app')?.classList.contains('tall-top') ? 'Purely cosmetic. Not shown in Full screen (no room above the screen).' : 'Purely cosmetic')}
     ${settings.seenDuo ? cards('foldCloses', 'When folded', [['true', 'Closed lid', foldArt(true)], ['false', 'Keep using it', foldArt(false)]],
       settings.foldCloses ? 'Shows a closed MacBook and lets the Mac sleep.' : 'All screen, and the whole screen is a trackpad.') : ''}
-    ${toggle('chime', 'Startup chime')}
-    ${toggle('stats', 'Show stats', 'Frame rate, bandwidth, latency')}
-    <div class="item"><span class="l">Screen</span>
-      <button type="button" class="btn" data-act="resetZoom">Reset zoom</button>
-      <button type="button" class="btn" data-act="refresh">Refresh</button></div>
+    ${iconToggle('chime', 'Startup chime', 'The Mac’s chime when it comes on', CHIME_ICON, 'linear-gradient(#ff6482, #ff375f)')}
+    ${iconToggle('stats', 'Show stats', `<span class="stat-pill">${i.connected ? `${i.fps ?? 0} fps · ${i.kbps ?? 0} KB/s · ${Math.round(i.rtt || 0)} ms` : 'fps · KB/s · ms'}</span>`, STATS_ICON, 'linear-gradient(#30d158, #248a3d)')}
   </div></div>
 
   ${i.device ? `<div class="group"><h3>Security</h3><div class="box">

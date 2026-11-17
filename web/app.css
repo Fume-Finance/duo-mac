@@ -430,6 +430,24 @@ html.native-video #screen { visibility: hidden; }
 #tools svg { width: 100%; height: 100%; }
 #tools button[hidden] { display: none; }
 /* Settings: the full-screen buttons, each on or off. */
+/* Full-screen buttons in Settings: tiles like the buttons themselves, dim when hidden. */
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(62px, 1fr)); gap: 8px; margin-top: 10px; }
+.tile {
+  display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 9px 4px 7px;
+  border-radius: 12px; border: 1px solid rgba(255, 255, 255, .1); background: rgba(255, 255, 255, .04);
+  color: rgba(255, 255, 255, .35); font: 500 11px/1 -apple-system, system-ui, sans-serif;
+}
+.tile .ti { display: grid; place-items: center; width: 38px; height: 34px; border-radius: 10px; border: 1px dashed rgba(255, 255, 255, .18); }
+.tile .ti svg { width: 18px; height: 18px; }
+.tile.on { color: #fff; border-color: rgba(10, 132, 255, .55); background: rgba(10, 132, 255, .14); }
+.tile.on .ti { border: 1px solid rgba(255, 255, 255, .16); background: rgba(24, 24, 28, .9); }
+.tile.fixed { opacity: .55; }
+.card .ct small.res { display: block; margin-top: 2px; font: 10px/1.2 ui-monospace, Menlo, monospace; opacity: .6; }
+.stat-pill { display: inline-block; margin-top: 3px; padding: 3px 8px; border-radius: 7px; background: rgba(24, 24, 28, .9); border: 1px solid rgba(255, 255, 255, .14); font: 10.5px/1.3 ui-monospace, Menlo, monospace; color: #c9c9cf; }
+.cards svg .fk { font: 600 5.6px -apple-system, system-ui, sans-serif; fill: currentColor; opacity: .85; }
+.cards svg .km, .cards svg .wave, .cards svg .cross { fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; opacity: .8; }
+.cards svg .dk { fill: currentColor; opacity: .12; }
+.cards svg .caret { fill: #0a84ff; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .chip {
   display: inline-flex; align-items: center; gap: 6px;

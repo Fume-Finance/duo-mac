@@ -36,7 +36,7 @@ export const DEFAULTS = {
   touchId: '',          // where its Touch ID is (main.js TOUCH_ID_SPOTS): '' until the first passkey
   seenDuo: false,       // this phone has opened up into an iPhone Duo's inner screen
   duoShort: 0,          // that inner screen's short side (CSS px), to tell folded from unfolded
-  defaultsRev: 4,       // bumped when a default changes for everyone (see upgrade)
+  defaultsRev: 5,       // bumped when a default changes for everyone (see upgrade)
 };
 
 /** Settings saved before defaults changed take the new defaults for those keys. */
@@ -47,6 +47,8 @@ export function upgrade(v) {
     delete v.topEdge;
   }
   if (!(v.defaultsRev >= 3)) delete v.foldCloses; // rev 3: folded = keep using it, full screen
+  // rev 5: no longer settings (always edge-to-edge keys, no notch, H.264, 120 fps where possible)
+  if (!(v.defaultsRev >= 5)) { delete v.keyboardSize; delete v.notch; delete v.video; delete v.smooth; }
   // rev 4: the Screenshot button, shown unless turned off
   if (!(v.defaultsRev >= 4) && typeof v.toolButtons === 'string' && !v.toolButtons.includes('screenshot')) {
     v.toolButtons = v.toolButtons ? `${v.toolButtons},screenshot` : 'screenshot';

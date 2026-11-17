@@ -773,13 +773,13 @@ final class NanoCore {
 
     /// Desktop size of the Duo display in points: a fixed width per size choice,
     /// height from the phone's screen area so it fills it exactly.
-    private func nanoPoints(for s: Session) -> (w: Int, h: Int) {
+    private func nanoPoints(for s: Session, size: String? = nil) -> (w: Int, h: Int) {
         let aspect = s.box.height > 0 ? s.box.width / s.box.height : 1.4
         // Larger text = the smallest desktop macOS still renders sharp (found and remembered on first
         // use); Default and More space are a bit roomier.
         let smallest = max(540, Double(UserDefaults.standard.integer(forKey: "nanoMinRetinaWidth")))
         let width: Double
-        switch s.nanoSize {
+        switch size ?? s.nanoSize {
         case "large": width = smallest
         case "more": width = smallest * 1.3
         default: width = smallest * 1.12
@@ -988,6 +988,10 @@ final class NanoCore {
             "local": sameNetwork.info ?? [:],
             "route": s.peer.local ? "local" : s.peer.viaTailscale ? "tailscale" : "direct",
             "app": frontApp,
+            // What each Desktop size would be at this shape (Settings shows it under each choice).
+            "nanoSizes": Dictionary(uniqueKeysWithValues: ["large", "default", "more"].map { k in
+                let p = nanoPoints(for: s, size: k); return (k, [p.w, p.h])
+            }),
         ]
     }
 
