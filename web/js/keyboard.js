@@ -2,8 +2,8 @@
 //
 // Modifiers work three ways: hold one finger on ⌘ and tap C with another (a real chord),
 // tap ⌘ then C (one-shot, like sticky keys), or double-tap a modifier to lock it.
-// Holding the globe/fn key turns the top row into F1–F12 and arrows into Home/End/Page Up/Down;
-// a long press on it opens the iPhone's own keyboard (dictation, emoji…).
+// The globe/fn key works like a Mac's: tapped, the Mac's next keyboard language; held, the top row
+// is F1–F12 and the arrows Home/End/Page Up/Down.
 import { settings } from './settings.js';
 import { addHapticSwitch } from './haptics.js';
 import { appKeysFor, MAX_APP_KEYS, ICONS as APP_ICONS } from './appkeys.js';
@@ -410,11 +410,14 @@ export class Keyboard {
         const s = this.mods[k.mod];
         s.held = Math.max(0, s.held - 1);
         const now = performance.now();
-        if (!s.used && !cancelled) {
-          if (k.mod === 'fn' && now - s.downAt > 550) {
-            s.latched = false;
-            this.cb.onIOSKeyboard?.();
-          } else if (s.locked) {
+        if (k.mod === 'fn') {
+          // Like a Mac's 🌐 key: tapped on its own, the next keyboard language; held, F1–F12 and
+          // Home/End/Page Up/Down on the keys pressed with it. It never latches.
+          s.latched = false;
+          s.locked = false;
+          if (!s.used && !cancelled && now - s.downAt < 600) this.cb.onAction('inputSource');
+        } else if (!s.used && !cancelled) {
+          if (s.locked) {
             s.locked = false;
           } else if (s.latched) {
             s.latched = false;

@@ -23,6 +23,30 @@ struct KeymapInfo {
 }
 
 enum Keymap {
+    /// The fn (🌐) key tapped on the phone: the Mac's next keyboard language, as tapping 🌐 on the Mac
+    /// does (with "Press 🌐 key to: Change Input Source"). Main thread.
+    static func selectNextInputSource() {
+        let filter = [kTISPropertyInputSourceIsSelectCapable: true,
+                      kTISPropertyInputSourceCategory: kTISCategoryKeyboardInputSource] as CFDictionary
+        guard let list = TISCreateInputSourceList(filter, false)?.takeRetainedValue() as? [TISInputSource], list.count > 1,
+              let cur = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue() else { return }
+        let curID = sourceID(cur)
+        let i = list.firstIndex { sourceID($0) == curID } ?? -1
+        TISSelectInputSource(list[(i + 1) % list.count])
+    }
+
+    /// The input source in use now ("Swiss French", "Pinyin – Simplified"…). Main thread.
+    static var currentSourceName: String {
+        guard let cur = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue(),
+              let p = TISGetInputSourceProperty(cur, kTISPropertyLocalizedName) else { return "" }
+        return Unmanaged<CFString>.fromOpaque(p).takeUnretainedValue() as String
+    }
+
+    private static func sourceID(_ s: TISInputSource) -> String {
+        guard let p = TISGetInputSourceProperty(s, kTISPropertyInputSourceID) else { return "" }
+        return Unmanaged<CFString>.fromOpaque(p).takeUnretainedValue() as String
+    }
+
     /// Every key that produces a character (letters, digits, punctuation, ISO extra key).
     static let printable: [UInt16] = (0x00...0x2F).filter { $0 != 0x24 }.map { UInt16($0) } + [0x32]
 

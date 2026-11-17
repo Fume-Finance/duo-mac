@@ -1371,6 +1371,10 @@ link = new Link({
       case 'app':
         setMacApp(m.app);
         break;
+      case 'keymap': // the Mac's keyboard language changed
+        keyboard.setLayout({ iso: m.keyboard?.iso, labels: m.keyboard?.labels });
+        if (m.name) showBanner(`⌨︎ ${m.name}`, 'info', 1500);
+        break;
       case 'shot-done':
         showBanner(m.ok ? 'Screenshot on the clipboard' : 'The screenshot didn’t work', m.ok ? 'info' : 'error', 2500);
         break;

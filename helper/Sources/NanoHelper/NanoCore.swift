@@ -1,4 +1,5 @@
 import AppKit
+import Carbon
 import ApplicationServices
 import IOKit.pwr_mgt
 
@@ -166,6 +167,16 @@ final class NanoCore {
         timers.append(Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             self?.clipboard.tick()
         })
+        // The keyboard language changed (fn on the phone, or on the Mac): new key labels for the phone.
+        DistributedNotificationCenter.default().addObserver(
+            forName: NSNotification.Name(kTISNotifySelectedKeyboardInputSourceChanged as String), object: nil, queue: .main) { [weak self] _ in
+            guard let self else { return }
+            self.keymap = Keymap.current()
+            self.installKeymap(self.keymap)
+            let json = self.keymap.json, name = Keymap.currentSourceName
+            self.model.keyboardLayout = self.keymap.layoutName + (self.keymap.iso ? " · ISO" : "")
+            self.server.queue.async { self.session?.send(["t": "keymap", "keyboard": json, "name": name]) }
+        }
         // The app in front: the phone shows its keys (web/js/appkeys.js).
         noteFrontApp(NSWorkspace.shared.frontmostApplication)
         NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil,

@@ -444,6 +444,9 @@ final class InputInjector {
         case "spaceLeft": combo(0x7B, .maskControl)
         case "spaceRight": combo(0x7C, .maskControl)
         case "spotlight": combo(0x31, .maskCommand)
+        case "inputSource":
+            if dryRun { return }
+            DispatchQueue.main.async { Keymap.selectNextInputSource() }
         default: break
         }
     }
