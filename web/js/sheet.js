@@ -2,6 +2,20 @@
 import { settings, setSetting } from './settings.js';
 import { native } from './native.js';
 
+/** The iPhone app: Apple's dictation or Whisper's, and how Whisper's model is doing. */
+function dictationRow(w) {
+  const whisper = settings.dictationEngine === 'whisper';
+  const status = !w ? '' : {
+    downloading: ` Downloading the model: ${w.pct}%.`, loading: ' Getting the model ready…', ready: ' Ready.',
+    wifi: ' Its model (630 MB) downloads on Wi-Fi; Apple’s is used until then.', failed: ' The model couldn’t be loaded; Apple’s is used.',
+    idle: '',
+  }[w.state] || '';
+  const note = whisper ? `Most accurate, any language (Italian, English…, even mixed); types it all when you stop.${status}`
+    : 'Fast, shows the words as you speak; in the iPhone’s language.';
+  return `<div class="item"><span class="l">Dictation<small>${note}</small></span><div class="seg" data-seg="dictationEngine">${
+    [['apple', 'Apple'], ['whisper', 'Whisper']].map(([v, t]) => `<button type="button" data-val="${v}" class="${settings.dictationEngine === v ? 'on' : ''}">${t}</button>`).join('')}</div></div>`;
+}
+
 /** The iPhone app's own Tailscale (ios/DuoMac/Tailnet.swift). */
 function tailnetRow(t) {
   const [note, btn] = !t.enabled ? ['Off: the Tailscale app’s VPN is needed away from the Mac’s network.', '<button type="button" class="btn" data-act="tailnetOn">Turn On</button>']
@@ -355,6 +369,7 @@ export class Sheet {
     ${displays}
     ${cards('quality', 'Quality', [['fast', 'Fast', qualityArt('🐇', 1.6)], ['balanced', 'Balanced', qualityArt('🐈', 0.6)], ['sharp', 'Sharp', qualityArt('🐌', 0)]], 'Faster and softer, or slower and crisper')}
     ${toggle('video', 'Video compression', 'H.264: smoother on slow connections, less data. Turn off if the picture looks wrong.')}
+    ${native ? dictationRow(i.whisper) : ''}
     ${native ? toggle('clipSync', 'Shared clipboard', 'Copy on the Mac, paste on the iPhone, and back. Text and pictures.') : ''}
     ${native?.video && native.maxFPS > 60 ? toggle('smooth', 'Smooth (120 fps)', 'As smooth as this screen goes. Off: 60 fps, less work for the Mac and less data.') : ''}
     ${cards('layout', 'Layout', [['laptop', 'Laptop', duoArt(0.5)], ['trackpad', 'Trackpad', duoArt(0.5, true)], ['screen', 'Screen only', duoArt(1)]],

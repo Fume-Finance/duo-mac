@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		D0000000000000000000B004 /* DuoMacWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = D0000000000000000000B001 /* DuoMacWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		D0000000000000000000C001 /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = D0000000000000000000C003 /* WhisperKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -76,6 +77,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D0000000000000000000C001 /* WhisperKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -132,6 +134,7 @@
 			);
 			name = DuoMac;
 			packageProductDependencies = (
+				D0000000000000000000C003 /* WhisperKit */,
 			);
 			productName = DuoMac;
 			productReference = D0000000000000000000A001 /* Duo Mac.app */;
@@ -187,6 +190,9 @@
 			);
 			mainGroup = D0000000000000000000A004;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				D0000000000000000000C002 /* XCRemoteSwiftPackageReference "WhisperKit" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = D0000000000000000000A005 /* Products */;
 			projectDirPath = "";
@@ -416,6 +422,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		D0000000000000000000C002 /* XCRemoteSwiftPackageReference "WhisperKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/argmaxinc/WhisperKit";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.1.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		D0000000000000000000C003 /* WhisperKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D0000000000000000000C002 /* XCRemoteSwiftPackageReference "WhisperKit" */;
+			productName = WhisperKit;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = D0000000000000000000A00A /* Project object */;
 }

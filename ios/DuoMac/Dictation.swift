@@ -9,16 +9,29 @@ final class Dictation {
     /// What's been heard so far (main thread), and whether it's final.
     var onText: ((String, Bool) -> Void)?
     private var modern: AnyObject?          // ModernDictation, on iOS 26+
+    @MainActor private var whisper: WhisperDictation?
     private let legacy = LegacyDictation()
 
     init() {
         legacy.onText = { [weak self] t, f in self?.onText?(t, f) }
     }
 
-    func start(locale: String?, completion: @escaping (String?) -> Void) {
+    /// engine: "whisper" (WhisperKit, once its model is in; until then Apple's) or "apple".
+    func start(locale: String?, engine: String?, completion: @escaping (String?) -> Void) {
         let loc = locale.map { Locale(identifier: $0) } ?? Locale.current
-        Dictation.permissions { error in
+        Dictation.permissions { error in MainActor.assumeIsolated {
             if let error { return completion(error) }
+            if engine == "whisper" {
+                let w = WhisperEngine.shared
+                if w.isReady {
+                    let d = WhisperDictation()
+                    d.onText = { [weak self] t, f in self?.onText?(t, f) }
+                    do { try d.start(); self.whisper = d; return completion(nil) } catch {
+                        return completion((error as? DictationError)?.message ?? error.localizedDescription)
+                    }
+                }
+                w.prepare() // meanwhile: Apple's
+            }
             if #available(iOS 26.0, *), SpeechTranscriber.isAvailable {
                 Task { @MainActor in
                     let m = ModernDictation()
@@ -35,11 +48,23 @@ final class Dictation {
             } else {
                 completion(self.legacy.start(locale: loc))
             }
-        }
+        } }
     }
 
     /// Stop listening; `deliver`: hand over what was heard (the final text arrives through onText).
     func stop(deliver: Bool = true) {
+        MainActor.assumeIsolated { stopOnMain(deliver: deliver) }
+    }
+
+    @MainActor private func stopOnMain(deliver: Bool) {
+        if let w = whisper {
+            whisper = nil
+            Task { @MainActor in
+                let text = await w.stop()
+                if deliver { self.onText?(text, true) } else { self.onText?("", true) }
+            }
+            return
+        }
         if #available(iOS 26.0, *), let m = modern as? ModernDictation {
             modern = nil
             Task { @MainActor in

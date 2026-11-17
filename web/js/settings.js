@@ -29,7 +29,8 @@ export const DEFAULTS = {
   mic: false,           // stream this iPhone's microphone to the Mac (the Duo Mac Microphone)
   macSound: true,       // play the Mac's sound on this iPhone
   video: true,          // H.264 video when the phone can decode it (else JPEG tiles)
-  clipSync: true,       // the iPhone app: copy on the Mac, paste on the iPhone, and the other way
+  clipSync: true,
+  dictationEngine: 'whisper', // the iPhone app: whisper (most accurate, any language, slower) | apple (fast, live)       // the iPhone app: copy on the Mac, paste on the iPhone, and the other way
   smooth: true,         // the iPhone app on a ProMotion screen: up to 120 frames a second
   foldCloses: false,    // iPhone Duo: folding it shows a closed lid (and lets the Mac sleep); off: full screen
   touchId: '',          // where its Touch ID is (main.js TOUCH_ID_SPOTS): '' until the first passkey

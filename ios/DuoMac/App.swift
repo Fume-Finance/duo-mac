@@ -25,6 +25,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         w.rootViewController = WebViewController()
         w.makeKeyAndVisible()
         window = w
+        if UserDefaults.standard.string(forKey: "dictationEngine") != "apple" { WhisperEngine.shared.loadIfDownloaded() }
     }
 
     func sceneDidBecomeActive(_ scene: UIScene) {

@@ -143,7 +143,7 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
 
         case "dictate":
             if m["on"] as? Bool == true {
-                dictation.start(locale: m["lang"] as? String) { err in replyHandler(err == nil, err) }
+                dictation.start(locale: m["lang"] as? String, engine: m["engine"] as? String) { err in replyHandler(err == nil, err) }
             } else {
                 dictation.stop(deliver: m["cancel"] as? Bool != true)
                 replyHandler(true, nil)
@@ -192,6 +192,21 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
             let n = { (k: String) in CGFloat((m[k] as? NSNumber)?.doubleValue ?? 0) }
             video?.place(on: m["on"] as? Bool == true, frame: CGRect(x: n("x"), y: n("y"), width: n("w"), height: n("h")))
             replyHandler(nil, nil)
+
+        case "whisper":
+            // Settings › Dictation: get the model ready (on Wi-Fi), and say how it's going.
+            if let e = m["engine"] as? String { UserDefaults.standard.set(e, forKey: "dictationEngine") }
+            if m["prepare"] as? Bool == true { WhisperEngine.shared.prepare() }
+            var st = "idle", pct = 0
+            switch WhisperEngine.shared.state {
+            case .idle: st = "idle"
+            case .downloading(let p): st = "downloading"; pct = p
+            case .loading: st = "loading"
+            case .ready: st = "ready"
+            case .waitingForWiFi: st = "wifi"
+            case .failed: st = "failed"
+            }
+            replyHandler(["state": st, "pct": pct], nil)
 
         case "find-mac":
             let port = UInt16(clamping: m["port"] as? Int ?? 8892)

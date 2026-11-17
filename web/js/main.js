@@ -413,12 +413,13 @@ function sheetInfo() {
     mac: cfg?.mac, display: cfg?.display, test: cfg?.test,
     displays: cfg?.displays, displayIndex: cfg?.displayIndex, nanoActive: !!cfg?.nano,
     layout: cfg?.keyboard?.layout, connected: link.open, rtt: link.rtt, device, micInstalled: cfg?.mic?.installed, micUpdate: cfg?.mic?.update, micOn: mic.running,
-    route: link.open ? link.route : '', localReady: !!link.local, localTrusted, tailnet,
+    route: link.open ? link.route : '', localReady: !!link.local, localTrusted, tailnet, whisper: whisperStatus,
     path: link.open && link.route === 'tailscale' ? tsPath : null,
   };
 }
 
 function openSheet() {
+  refreshWhisper();
   sheet.update(sheetInfo());
   sheet.open();
   powerKey()?.classList.remove('attn');
@@ -700,6 +701,7 @@ onSetting((k, v) => {
   if (k === 'quality') link.send({ t: 'quality', q: v });
   if (k === 'video') link.send({ t: 'codec', c: codec() });
   if (k === 'video' || k === 'smooth') link.send({ t: 'fps', fps: maxFPS() });
+  if (k === 'dictationEngine') refreshWhisper();
   if (k === 'clipSync') {
     link.send({ t: 'clip-sync', on: clipSync() });
     native?.call({ t: 'clip-watch', on: clipSync() }).catch(() => {});
@@ -1734,6 +1736,23 @@ function findMacNearby() {
     if (!link.open) link.reconnectNow();
   }).catch(() => {}).finally(() => { finding = false; });
 }
+
+/** Whisper dictation (the iPhone app): get its model ready when chosen, and follow the download
+ *  while Settings is open. */
+let whisperStatus = null, whisperTimer = 0;
+function refreshWhisper() {
+  if (!native) return;
+  clearTimeout(whisperTimer);
+  const prepare = settings.dictationEngine === 'whisper';
+  native.call({ t: 'whisper', prepare, engine: settings.dictationEngine }).then((st) => {
+    whisperStatus = st;
+    if (sheet.isOpen) {
+      sheet.update(sheetInfo());
+      if (st?.state === 'downloading' || st?.state === 'loading') whisperTimer = setTimeout(refreshWhisper, 1000);
+    }
+  }).catch(() => {});
+}
+refreshWhisper();
 
 /** The app's own Tailscale (Settings › Connection): its state, as the app reports it. */
 window.duoTailnet = (t) => {
