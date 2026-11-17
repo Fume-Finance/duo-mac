@@ -88,7 +88,7 @@ function dictationRow(w) {
 function macsGroup(m) {
   const label = (x) => esc(x.name || x.host.split('.')[0]);
   return `<div class="group"><h3>Macs</h3><div class="box">
-    ${m.list.map((x) => `<div class="item mac-item"><span class="macpic">${macPicture(x)}</span><span class="l">${label(x)}<small>${esc(x.product || x.host.split('.')[0])}</small></span>
+    ${m.list.map((x) => `<div class="item mac-item"><span class="macpic">${x.picture ? `<img src="${esc(x.picture)}" alt="">` : macPicture(x)}</span><span class="l">${label(x)}<small>${esc(x.product || x.host.split('.')[0])}</small></span>
       ${x.current ? '<span class="state on">In use</span>'
         : `<button type="button" class="btn blue" data-mac-open="${esc(x.host)}">Switch</button><button type="button" class="btn" data-mac-remove="${esc(x.host)}">Remove</button>`}</div>`).join('')}
     <div class="item"><span class="l">Add a Mac<small>On that Mac: Duo Mac › Add iPhone…, then scan its QR code. Or type its name on your tailnet.</small></span>

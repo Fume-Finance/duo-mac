@@ -5,7 +5,8 @@ import Foundation
 /// one is the Mac the app was built on (tools/ios-app.sh).
 enum Macs {
     /// product: the model, "MacBook Pro (16-inch, 2021)" (for its picture in Settings › Macs).
-    struct Mac: Codable, Equatable { var host: String; var name: String; var product: String? }
+    /// picture: the Mac's own picture (a data: URL, from the Mac).
+    struct Mac: Codable, Equatable { var host: String; var name: String; var product: String?; var picture: String? }
 
     private static let listKey = "macs", currentKey = "currentMac"
 
@@ -62,7 +63,7 @@ enum Macs {
         if current == host { current = list.first?.host }
     }
 
-    static func setName(_ name: String, product: String?, for host: String) {
-        list = list.map { $0.host == host ? Mac(host: $0.host, name: name, product: product ?? $0.product) : $0 }
+    static func setName(_ name: String, product: String?, picture: String?, for host: String) {
+        list = list.map { $0.host == host ? Mac(host: $0.host, name: name, product: product ?? $0.product, picture: picture ?? $0.picture) : $0 }
     }
 }

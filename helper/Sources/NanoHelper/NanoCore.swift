@@ -104,6 +104,7 @@ final class NanoCore {
         sameNetwork.onWebSocket = { [weak self] ws, headers in self?.attach(ws, headers: headers) }
         if options.testPattern { sameNetwork.origins = ["http://localhost:\(port)"] }
         server.dynamicFile = { [weak self] path in
+            if path == "/mac-picture.png" { return MacInfo.picture.map { ($0, "image/png") } }
             guard path == "/duo-mac-local.mobileconfig", let p = self?.sameNetwork.profile() else { return nil }
             return (p, "application/x-apple-aspen-config")
         }

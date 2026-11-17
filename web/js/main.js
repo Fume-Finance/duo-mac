@@ -1409,7 +1409,7 @@ link = new Link({
       case 'config':
         cfg = m;
         speaker.setMacName(m.mac?.name);
-        if (m.mac?.name) native?.call({ t: 'mac-name', name: m.mac.name, product: m.mac.product }).catch(() => {});
+        if (m.mac?.name) tellAppAboutMac(m.mac);
         if (m.local?.hosts) {
           link.setLocal(m.local);
           try { localStorage.setItem(LOCAL_KEY, JSON.stringify(link.local)); } catch {}
@@ -1832,6 +1832,22 @@ function findMacNearby() {
     remoteLog('info', [`found the Mac on the hotspot at ${hosts.join(', ')}`]);
     if (!link.open) link.reconnectNow();
   }).catch(() => {}).finally(() => { finding = false; });
+}
+
+/** The iPhone app's Settings › Macs: this Mac's name, model and picture (once per visit). */
+let toldApp = false;
+async function tellAppAboutMac(mac) {
+  if (!native || toldApp) return;
+  toldApp = true;
+  let picture;
+  try {
+    const r = await fetch('/mac-picture.png', { cache: 'no-store' });
+    if (r.ok) {
+      const blob = await r.blob();
+      picture = await new Promise((ok) => { const f = new FileReader(); f.onload = () => ok(f.result); f.onerror = () => ok(undefined); f.readAsDataURL(blob); });
+    }
+  } catch {}
+  native.call({ t: 'mac-name', name: mac.name, product: mac.product, picture }).catch(() => {});
 }
 
 /** The iPhone app's saved Macs, for Settings › Macs. */

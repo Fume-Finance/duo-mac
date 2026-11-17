@@ -1,6 +1,7 @@
 import Foundation
 import SystemConfiguration
 import IOKit
+import AppKit
 
 struct MacInfo {
     let computerName: String
@@ -23,6 +24,20 @@ struct MacInfo {
                        chip: sysctlString("machdep.cpu.brand_string") ?? "Apple silicon",
                        memoryGB: mem, osVersion: os)
     }
+
+    /// This Mac's own picture, as Finder shows it (its model and colour), for the iPhone's Settings › Macs.
+    static let picture: Data? = {
+        guard let img = NSImage(named: NSImage.computerName),
+              let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 144, pixelsHigh: 144, bitsPerSample: 8,
+                                         samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+                                         bytesPerRow: 0, bitsPerPixel: 0),
+              let ctx = NSGraphicsContext(bitmapImageRep: rep) else { return nil }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = ctx
+        img.draw(in: NSRect(x: 0, y: 0, width: 144, height: 144))
+        NSGraphicsContext.restoreGraphicsState()
+        return rep.representation(using: .png, properties: [:])
+    }()
 
     /// The model's name as About This Mac shows it (Apple silicon keeps it in the device tree).
     static func productName() -> String? {
