@@ -66,6 +66,7 @@ export const ICONS = {
   redo: svg('<path d="M11 3.5 13.5 6 11 8.5"/><path d="M13.5 6h-7a4 4 0 0 0 0 8H9"/>'),
   dictate: svg('<rect x="5.8" y="1.5" width="4.4" height="8" rx="2.2"/><path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.5"/>'),
   ret: svg('<path d="M13.5 3v5.5a2 2 0 0 1-2 2H3"/><path d="M5.5 8 3 10.5 5.5 13"/>'),
+  keyboard: svg('<rect x="1.5" y="4" width="13" height="8" rx="1.6"/><path d="M4 6.5h.5M6.5 6.5h.5M9 6.5h.5M11.5 6.5h.5M5 9.5h6"/>'),
 };
 
 const key = (l, i, k, mods = 0) => ({ l, i, k: [K[k], mods] });

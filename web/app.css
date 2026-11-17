@@ -425,9 +425,11 @@ html.native-video #screen { visibility: hidden; }
 /* Settings: the full-screen buttons, each on or off. */
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .chip {
-  padding: 6px 11px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, .16);
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 12px 6px 9px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, .16);
   background: transparent; color: rgba(255, 255, 255, .55); font: 500 13px/1 -apple-system, system-ui, sans-serif;
 }
+.chip svg { width: 15px; height: 15px; flex: none; }
 .chip.on { background: #0a84ff; border-color: #0a84ff; color: #fff; }
 #tools #tool-mic.on { background: rgba(220, 50, 50, .85); border-color: rgba(255, 120, 120, .6); }
 /* The Mac app's keys (appkeys.js), only on the full screen. */
