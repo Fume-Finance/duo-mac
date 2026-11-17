@@ -30,6 +30,7 @@ final class WhisperEngine {
 
     /// Download and load, in the background.
     func prepare() {
+        print("whisper: prepare (preparing \(preparing), ready \(kit != nil))")
         guard !preparing, kit == nil else { return }
         preparing = true
         Task {
@@ -37,15 +38,20 @@ final class WhisperEngine {
             do {
                 var folder = savedFolder
                 if folder == nil {
+                    print("whisper: downloading \(Self.variant)")
                     state = .downloading(0)
                     let f = try await WhisperKit.download(variant: Self.variant) { p in
                         let pct = Int(p.fractionCompleted * 100)
-                        Task { @MainActor in WhisperEngine.shared.state = .downloading(pct) }
+                        Task { @MainActor in
+                            if case .downloading(let old) = WhisperEngine.shared.state, old / 10 != pct / 10 { print("whisper: \(pct)%") }
+                            WhisperEngine.shared.state = .downloading(pct)
+                        }
                     }
                     UserDefaults.standard.set(f.path, forKey: Self.folderKey)
                     folder = f
                 }
                 state = .loading
+                print("whisper: loading")
                 let cfg = WhisperKitConfig(modelFolder: folder!.path, verbose: false, logLevel: .error,
                                            prewarm: true, load: true, download: false)
                 kit = try await WhisperKit(cfg)

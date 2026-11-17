@@ -6,11 +6,12 @@ import { native } from './native.js';
 function dictationRow(w) {
   const whisper = settings.dictationEngine === 'whisper';
   const status = !w ? '' : {
-    downloading: ` Downloading the model: ${w.pct}%.`, loading: ' Getting the model ready…', ready: ' Ready.',
+    downloading: w.pct >= 100 ? ' Preparing the model (the first time takes a few minutes)…' : ` Downloading the model: ${w.pct}%.`,
+    loading: ' Preparing the model (the first time takes a few minutes)…', ready: ' Ready.',
     wifi: '', failed: ' The model couldn’t be loaded; Apple’s is used.',
     idle: '',
   }[w.state] || '';
-  const note = whisper ? `Most accurate, any language (Italian, English…, even mixed); types it all when you stop. Its model is 630 MB, downloaded once.${status}`
+  const note = whisper ? `Most accurate, any language; types it all when you stop. Its model is 630 MB, downloaded once.${status}`
     : 'Fast, shows the words as you speak; in the iPhone’s language.';
   return `<div class="item"><span class="l">Dictation<small>${note}</small></span><div class="seg" data-seg="dictationEngine">${
     [['apple', 'Apple'], ['whisper', 'Whisper']].map(([v, t]) => `<button type="button" data-val="${v}" class="${settings.dictationEngine === v ? 'on' : ''}">${t}</button>`).join('')}</div></div>`;
@@ -357,6 +358,7 @@ export class Sheet {
         ? `<small class="warn">⚠︎ Not on your Mac yet. ${i.micUpdate ? 'Update' : 'Add'} the Duo Mac Microphone there: menu bar › Settings… › General › ${i.micUpdate ? 'Update…' : 'Install…'}</small>`
         : '<small>Dictation, calls and voice modes on the Mac hear this iPhone. It only records while a Mac app is listening.</small>'}</label>
       <input type="checkbox" switch id="s-mic" data-k="mic" ${settings.mic ? 'checked' : ''}></div>
+    ${native ? dictationRow(i.whisper) : ''}
   </div></div>
 
   <div class="group"><h3>Display</h3><div class="box">
@@ -369,7 +371,6 @@ export class Sheet {
     ${displays}
     ${cards('quality', 'Quality', [['fast', 'Fast', qualityArt('🐇', 1.6)], ['balanced', 'Balanced', qualityArt('🐈', 0.6)], ['sharp', 'Sharp', qualityArt('🐌', 0)]], 'Faster and softer, or slower and crisper')}
     ${toggle('video', 'Video compression', 'H.264: smoother on slow connections, less data. Turn off if the picture looks wrong.')}
-    ${native ? dictationRow(i.whisper) : ''}
     ${native ? toggle('clipSync', 'Shared clipboard', 'Copy on the Mac, paste on the iPhone, and back. Text and pictures.') : ''}
     ${native?.video && native.maxFPS > 60 ? toggle('smooth', 'Smooth (120 fps)', 'As smooth as this screen goes. Off: 60 fps, less work for the Mac and less data.') : ''}
     ${cards('layout', 'Layout', [['laptop', 'Laptop', duoArt(0.5)], ['trackpad', 'Trackpad', duoArt(0.5, true)], ['screen', 'Screen only', duoArt(1)]],
