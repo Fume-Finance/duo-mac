@@ -6,7 +6,7 @@
 // a long press on it opens the iPhone's own keyboard (dictation, emoji…).
 import { settings } from './settings.js';
 import { addHapticSwitch } from './haptics.js';
-import { appKeysFor, MAX_APP_KEYS } from './appkeys.js';
+import { appKeysFor, MAX_APP_KEYS, ICONS as APP_ICONS } from './appkeys.js';
 
 export const MOD = { shift: 1, control: 2, option: 4, command: 8 };
 
@@ -194,7 +194,9 @@ export class Keyboard {
       if (!k.down) k.app = a;
       k.el.classList.toggle('off', !a);
       if (!a) continue;
-      k.lab.textContent = a.l;
+      k.lab.innerHTML = APP_ICONS[a.i] || a.l;
+      k.el.setAttribute('aria-label', a.l);
+      if (a.act) k.el.dataset.act = a.act; else delete k.el.dataset.act;
       k.el.style.setProperty('--w', 12 / list.length);
     }
   }

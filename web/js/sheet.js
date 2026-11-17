@@ -328,7 +328,7 @@ export class Sheet {
     ${settings.sounds ? slider('volume', 'Volume', 0, 1, 0.05, FMT.volume) : ''}
     ${toggle('haptics', 'Haptic taps', 'Keys and trackpad taps, felt as you lift your finger')}
     ${toggle('fnStandard', 'Top row: F1–F12 instead of the Mac app’s keys', 'fn switches between them')}
-    ${toggle('padButtons', 'Buttons beside the trackpad', 'Copy, paste, undo, dictate and return')}
+    ${toggle('padButtons', 'Buttons beside the trackpad', 'Trackpad layout: copy, paste, undo, redo, dictate and return')}
     ${toggle('toolKeys', 'Copy, paste, undo, redo on the full screen', 'Folded or sideways, next to ⌨︎ and ⚙︎')}
     ${settings.layout === 'laptop' ? cards('keyboardSize', 'Size', [['full', 'Edge to edge', keysArt(true)], ['macbook', 'MacBook', keysArt(false)]],
       settings.keyboardSize === 'macbook' ? 'Margins and speaker grilles, like a MacBook' : 'As wide as the iPhone: bigger keys and trackpad') : ''}

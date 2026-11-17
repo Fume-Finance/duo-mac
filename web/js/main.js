@@ -9,6 +9,7 @@ import { Sheet } from './sheet.js';
 import { sound } from './sound.js';
 import { haptic, tapHaptic, addHapticSwitch } from './haptics.js';
 import { native } from './native.js';
+import { ICONS, COPY, PASTE, UNDO, REDO, DICTATE, RETURN } from './appkeys.js';
 import { Dictation } from './dictation.js';
 import { PairView } from './pairview.js';
 import { showInstall, hideInstall, browserName } from './install.js';
@@ -156,6 +157,7 @@ const keyboard = new Keyboard($('#keyboard'), $('#keypop'), {
   },
   onAction(a) {
     if (a === 'iosKeyboard') openIOSKeyboard();
+    else if (a === 'dictate') dictation.toggle();
     else sendNow({ t: 'act', a });
   },
   onPower() { sheet.isOpen ? sheet.close() : openSheet(); },
@@ -231,39 +233,31 @@ function tapCombo(code, mods = 0) {
 function runKey(a) {
   sound.click('key');
   haptic();
-  if (a.act) sendNow({ t: 'act', a: a.act });
+  if (a.act === 'dictate') dictation.toggle();
+  else if (a.act) sendNow({ t: 'act', a: a.act });
   else tapCombo(a.k[0], a.k[1]);
 }
 const dictation = new Dictation($('#dictation'), {
   type: (text) => { keyboard.markUsed(); sendNow({ t: 'txt', s: text }); },
   openKeyboard: () => openIOSKeyboard(),
-  changed: (on) => { for (const b of document.querySelectorAll('[data-side="dictate"], #tool-mic')) b.classList.toggle('on', on); },
+  changed: (on) => { for (const b of document.querySelectorAll('[data-act="dictate"], #tool-mic')) b.classList.toggle('on', on); },
   say: (text, level) => showBanner(text, level, 5000),
 });
-const ic = (body) => `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
-const SIDE_KEYS = {
-  l: [
-    { id: 'copy', l: 'Copy', k: [0x08, 8], icon: ic('<rect x="5" y="5" width="8.5" height="8.5" rx="1.6"/><path d="M11 5V3.6A1.6 1.6 0 0 0 9.4 2H3.6A1.6 1.6 0 0 0 2 3.6v5.8A1.6 1.6 0 0 0 3.6 11H5"/>') },
-    { id: 'paste', l: 'Paste', k: [0x09, 8], icon: ic('<rect x="3" y="3" width="10" height="11.5" rx="1.6"/><path d="M6 3V2h4v1M5.5 7h5M5.5 10h3.5"/>') },
-    { id: 'undo', l: 'Undo', k: [0x06, 8], icon: ic('<path d="M5 3.5 2.5 6 5 8.5"/><path d="M2.5 6h7a4 4 0 0 1 0 8H7"/>') },
-  ],
-  r: [
-    { id: 'dictate', l: 'Dictate', icon: ic('<rect x="5.8" y="1.5" width="4.4" height="8" rx="2.2"/><path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.5"/>') },
-    { id: 'return', l: 'Return', k: [0x24, 0], icon: ic('<path d="M13.5 3v5.5a2 2 0 0 1-2 2H3"/><path d="M5.5 8 3 10.5 5.5 13"/>') },
-  ],
-};
+// Trackpad layout (no keyboard): copy, paste, undo / redo, dictate, return beside the trackpad.
+// (With the keyboard they're in its top row instead: appkeys.js.)
+const SIDE_KEYS = { l: [COPY, PASTE, UNDO], r: [REDO, DICTATE, RETURN] };
 for (const side of ['l', 'r']) {
   const box = $(`#padside-${side}`);
   for (const a of SIDE_KEYS[side]) {
     const b = document.createElement('button');
     b.type = 'button';
-    b.dataset.side = a.id;
+    if (a.act) b.dataset.act = a.act;
     b.setAttribute('aria-label', a.l);
-    b.innerHTML = `${a.icon}<span>${a.l}</span>`;
+    b.innerHTML = `${ICONS[a.i]}<span>${a.l}</span>`;
     b.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       b.classList.add('pressed');
-      if (a.id === 'dictate') { sound.click('key'); haptic(); dictation.toggle(); } else runKey(a);
+      runKey(a);
     });
     const up = () => b.classList.remove('pressed');
     b.addEventListener('pointerup', up);
@@ -294,10 +288,7 @@ function placeSides(x, y, w, h, W) {
 function hideSides() { for (const side of ['l', 'r']) $(`#padside-${side}`).hidden = true; }
 
 // On the full screen (folded, or sideways): copy, paste, undo and redo beside 🎙, ⌨︎ and ⚙︎.
-const TOOL_KEYS = [
-  SIDE_KEYS.l[0], SIDE_KEYS.l[1], SIDE_KEYS.l[2],
-  { id: 'redo', l: 'Redo', k: [0x06, 8 | 1], icon: ic('<path d="M11 3.5 13.5 6 11 8.5"/><path d="M13.5 6h-7a4 4 0 0 0 0 8H9"/>') },
-];
+const TOOL_KEYS = [COPY, PASTE, UNDO, REDO];
 function setMacApp(app) {
   keyboard.setApp(app || null);
 }
@@ -309,7 +300,7 @@ function renderToolKeys() {
     const b = document.createElement('button');
     b.type = 'button';
     b.setAttribute('aria-label', a.l);
-    b.innerHTML = a.icon;
+    b.innerHTML = ICONS[a.i];
     b.addEventListener('pointerdown', (e) => { e.preventDefault(); runKey(a); });
     box.appendChild(b);
   }
@@ -644,7 +635,7 @@ function layoutDeck() {
   const zoneTop = kbY + kbH + 2;
   Object.assign(zone.style, { left: '0px', top: `${zoneTop}px`, width: `${W}px`, height: `${H - zoneTop}px` });
   Object.assign(tp.style, { left: `${(W - tpW) / 2}px`, top: `${tpTop - zoneTop}px`, width: `${tpW}px`, height: `${tpH}px` });
-  placeSides((W - tpW) / 2, tpTop, tpW, tpH, W);
+  hideSides(); // the keyboard's top row has them
 
   // Speaker grilles beside the keyboard when there's room.
   const room = kbX - padX * 0.5;

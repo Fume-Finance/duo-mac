@@ -7,16 +7,22 @@ import UIKit
 final class ClipboardWatch {
     var onCopy: (([String: Any]) -> Void)?
     private var watching = false
-    private var seen = UIPasteboard.general.changeCount
     private var timer: Timer?
+    /// The clipboard's change count last sent or set (kept across launches): anything copied since,
+    /// even with the app closed or the Mac not connected, is sent once the Mac is there.
+    private var seen: Int {
+        get { UserDefaults.standard.object(forKey: "clipSeen") as? Int ?? UIPasteboard.general.changeCount }
+        set { UserDefaults.standard.set(newValue, forKey: "clipSeen") }
+    }
 
     func setWatching(_ on: Bool) {
         watching = on
         timer?.invalidate()
         timer = nil
         guard on else { return }
-        seen = UIPasteboard.general.changeCount // what's there already isn't news
+        if UserDefaults.standard.object(forKey: "clipSeen") == nil { seen = UIPasteboard.general.changeCount }
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.check() }
+        check() // copied while away
     }
 
     /// The Mac copied something: put it on this clipboard (not sent back).

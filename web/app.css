@@ -599,7 +599,9 @@ html.native-video #screen { visibility: hidden; }
 /* The app in front's keys (appkeys.js), in the top row instead of F1–F12 (fn brings those back). */
 .fnrow.apps .key.fn, .fnrow:not(.apps) .key.appk, .key.appk.off { display: none; }
 .key.appk { font-size: max(7px, calc(var(--u) * .22)); letter-spacing: .01em; }
-.key.appk .al { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 4%; }
+.key.appk .al { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 4%; display: grid; place-items: center; }
+.key.appk svg { width: calc(var(--u) * .34); height: calc(var(--u) * .34); }
+.key.appk.on { background: rgba(220, 50, 50, .85); color: #fff; }
 .key.power svg { width: calc(var(--u) * .34); height: calc(var(--u) * .34); color: var(--key-sub); }
 .key.power.attn svg { color: #fff; animation: pulse 1.6s ease-in-out infinite; }
 
