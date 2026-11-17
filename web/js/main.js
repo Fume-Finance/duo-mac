@@ -91,7 +91,7 @@ macCursor.onRender = () => {
     return Math.hypot(Math.max(t.left - x, 0, x - t.right), Math.max(t.top - y, 0, y - t.bottom)) < 110;
   };
   toolsEl.classList.toggle('shy', !!onScreen && !toolsEl.hidden && near(toolsEl));
-  statsEl.classList.toggle('shy', !!onScreen && !statsEl.hidden && statsEl.parentElement === screen.area && near(statsEl));
+  statsEl.classList.toggle('shy', !!onScreen && !statsEl.hidden && statsEl.parentElement === app && near(statsEl));
 };
 
 // ───── Input batching ─────
@@ -529,7 +529,8 @@ function layout() {
   app.classList.toggle('full-top', bareTop || (tallTop && settings.topEdge === 'full'));
   app.style.setProperty('--lid-h', `${screenOnly ? H : Math.round(H * split())}px`);
   // Stats live on the trackpad, out of the way; with no trackpad, on the screen.
-  const statsHome = screenOnly ? $('#screen-area') : $('#trackpad');
+  // (Full screen: in the same box as the buttons, so they share the bottom line.)
+  const statsHome = screenOnly ? app : $('#trackpad');
   if (statsEl.parentElement !== statsHome) statsHome.appendChild(statsEl);
   if (!screenOnly) layoutDeck();
   screen.layout();
