@@ -240,6 +240,7 @@ function runKey(a) {
   sound.click('key');
   haptic();
   if (a.act === 'dictate') dictation.toggle();
+  else if (a.act === 'screenshot') startShot();
   else if (a.act) sendNow({ t: 'act', a: a.act });
   else tapCombo(a.k[0], a.k[1]);
 }
@@ -294,7 +295,7 @@ function placeSides(x, y, w, h, W) {
 function hideSides() { for (const side of ['l', 'r']) $(`#padside-${side}`).hidden = true; }
 
 // On the full screen (folded, or sideways): copy, paste, undo and redo beside 🎙, ⌨︎ and ⚙︎.
-const TOOL_KEYS = [COPY, PASTE, UNDO, REDO];
+const TOOL_KEYS = [COPY, PASTE, UNDO, REDO, { l: 'Screenshot', i: 'screenshot', act: 'screenshot' }];
 function setMacApp(app) {
   keyboard.setApp(app || null);
 }
@@ -1353,6 +1354,9 @@ link = new Link({
       case 'app':
         setMacApp(m.app);
         break;
+      case 'shot-done':
+        showBanner(m.ok ? 'Screenshot on the clipboard' : 'The screenshot didn’t work', m.ok ? 'info' : 'error', 2500);
+        break;
       case 'clip': // copied on the Mac
         if (clipSync()) native.call({ t: 'clip-set', text: m.text, img: m.img }).catch(() => {});
         break;
@@ -1729,6 +1733,46 @@ setInterval(() => {
 
 // Debug handle (Safari Web Inspector / tests).
 window.__nano = { screen, keyboard, trackpad, sheet, macCursor, get link() { return link; }, settings };
+
+// ───── Screenshot (the full-screen button): drag over a part of the Mac's screen, or tap for all ─────
+// The Mac captures it at full resolution and puts it on its clipboard (Screenshot.swift), and the
+// shared clipboard brings it to the iPhone's.
+const shotEl = $('#shot'), shotBox = shotEl.querySelector('.shot-box');
+let shotFrom = null;
+function startShot() {
+  if (!link.open) return showBanner('Not connected to the Mac', 'error', 2000);
+  shotFrom = null;
+  shotBox.hidden = true;
+  shotEl.hidden = false;
+}
+function endShot() { shotEl.hidden = true; shotFrom = null; }
+shotEl.querySelector('.shot-cancel').addEventListener('pointerdown', (e) => { e.stopPropagation(); e.preventDefault(); endShot(); });
+shotEl.addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  try { shotEl.setPointerCapture(e.pointerId); } catch {}
+  shotFrom = { x: e.clientX, y: e.clientY };
+});
+shotEl.addEventListener('pointermove', (e) => {
+  if (!shotFrom) return;
+  const x = Math.min(shotFrom.x, e.clientX), y = Math.min(shotFrom.y, e.clientY);
+  Object.assign(shotBox.style, { left: `${x}px`, top: `${y}px`, width: `${Math.abs(e.clientX - shotFrom.x)}px`, height: `${Math.abs(e.clientY - shotFrom.y)}px` });
+  shotBox.hidden = false;
+});
+shotEl.addEventListener('pointerup', (e) => {
+  if (!shotFrom) return;
+  const a = shotFrom;
+  endShot();
+  let r = { x: 0, y: 0, w: 1, h: 1 }; // a tap: the whole screen
+  if (Math.abs(e.clientX - a.x) > 12 || Math.abs(e.clientY - a.y) > 12) {
+    const [x1, y1] = screen.normalized(a.x, a.y), [x2, y2] = screen.normalized(e.clientX, e.clientY);
+    r = { x: Math.min(x1, x2), y: Math.min(y1, y2), w: Math.abs(x2 - x1), h: Math.abs(y2 - y1) };
+    if (r.w < 0.005 || r.h < 0.005) return; // dragged off the screen
+  }
+  sound.click('key');
+  haptic('medium');
+  sendNow({ t: 'shot', ...r });
+});
+shotEl.addEventListener('pointercancel', endShot);
 
 // ───── The iPhone app (ios/) ─────
 /** On this iPhone's hotspot the Mac gets a new address now and then, and its .local name doesn't

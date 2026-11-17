@@ -4,7 +4,7 @@ import { native } from './native.js';
 import { ICONS } from './appkeys.js';
 
 /** Full screen: which buttons show next to the settings one (which always does). Tap to turn each on or off. */
-const TOOL_BUTTONS = [['copy', 'Copy'], ['paste', 'Paste'], ['undo', 'Undo'], ['redo', 'Redo'], ['dictate', 'Dictate'], ['keyboard', 'Keyboard']];
+const TOOL_BUTTONS = [['copy', 'Copy'], ['paste', 'Paste'], ['undo', 'Undo'], ['redo', 'Redo'], ['screenshot', 'Screenshot'], ['dictate', 'Dictate'], ['keyboard', 'Keyboard']];
 function toolButtonsRow() {
   const on = new Set(String(settings.toolButtons).split(','));
   return `<div class="item cards-item"><span class="l">Full-screen buttons<small>Folded or sideways. Tap to show or hide each; ⚙︎ always stays.</small></span>

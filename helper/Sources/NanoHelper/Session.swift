@@ -290,6 +290,11 @@ final class Session {
         case "aux": inj.aux(Int32(clamping: int(m["k"])), down: int(m["d"]) == 1)
         case "act": if let a = m["a"] as? String { inj.action(a) }
         case "rel": inj.releaseAll()
+        case "shot":
+            let r = CGRect(x: num(m["x"]), y: num(m["y"]), width: num(m["w"]), height: num(m["h"]))
+            Screenshot.capture(display: core.source.info, rect: r) { [weak self] ok in
+                self?.core.server.queue.async { self?.send(["t": "shot-done", "ok": ok]) }
+            }
         case "sound":
             macSound = (m["on"] as? Bool) ?? false
             let sound = macSound

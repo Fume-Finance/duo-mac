@@ -366,6 +366,7 @@ html.native-video #screen { visibility: hidden; }
 }
 /* Like ⌨︎ and ⚙︎: out of the way while the Mac's pointer is near. */
 #stats.shy { opacity: 0; }
+#stats[hidden] { display: none; }
 
 #layout-btn {
   position: absolute;
@@ -477,6 +478,22 @@ html.native-video #screen { visibility: hidden; }
 .padside button.pressed { transform: scale(.94); background: #000; }
 .padside button.on { background: rgba(220, 50, 50, .85); color: #fff; }
 .padside button.on span { color: #fff; }
+
+/* Screenshot: drag a rectangle over the Mac's screen. */
+#shot { position: absolute; inset: 0; z-index: 30; cursor: crosshair; touch-action: none; background: rgba(0, 0, 0, .18); }
+#shot[hidden] { display: none; }
+.shot-hint {
+  position: absolute; left: 50%; top: max(var(--sat), 14px); transform: translateX(-50%);
+  padding: 8px 14px; border-radius: 12px; background: rgba(20, 20, 24, .88); color: #fff;
+  font: 500 14px/1.3 -apple-system, system-ui, sans-serif; white-space: nowrap; pointer-events: none;
+}
+.shot-box { position: absolute; border: 1.5px solid #fff; background: rgba(10, 132, 255, .18); box-shadow: 0 0 0 9999px rgba(0, 0, 0, .35); pointer-events: none; }
+.shot-box[hidden] { display: none; }
+.shot-cancel {
+  position: absolute; right: 12px; bottom: max(calc(var(--sab) - 8px), 10px);
+  padding: 9px 16px; border-radius: 12px; border: 1px solid rgba(255, 255, 255, .2);
+  background: rgba(24, 24, 28, .9); color: #fff; font: 500 14px/1 -apple-system, system-ui, sans-serif;
+}
 
 /* What dictation has heard so far. */
 #dictation {
