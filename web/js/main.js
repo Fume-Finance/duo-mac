@@ -510,8 +510,12 @@ function layout() {
   app.classList.toggle('screen-only', screenOnly);
   app.classList.toggle('pad-only', padOnly);
   $('#tools').hidden = v.layout === 'laptop';
-  // Full screen, upright (folded): the buttons stand down the side; sideways, along the bottom.
-  toolsEl.classList.toggle('col', screenOnly && !sideways);
+  // Full screen: the buttons in a row along the bottom (next to the stats), or, where the row
+  // doesn't fit (folded upright), in a column at the right edge.
+  const nButtons = toolsEl.querySelectorAll('button').length;
+  const rowW = nButtons * 38 + (nButtons - 1) * 7 + 12;
+  const statsW = settings.stats ? 150 : 0;
+  toolsEl.classList.toggle('col', screenOnly && rowW + statsW + 12 > innerWidth);
   app.classList.toggle('nano', settings.macDisplay === 'nano');
   app.classList.toggle('show-notch', !!settings.notch);
   app.classList.toggle('haptics', !!settings.haptics);
@@ -1716,10 +1720,7 @@ setInterval(() => {
   prev = { frames: screen.frames, bytes: screen.bytes, decodeMs: screen.decodeMs };
   if (!settings.stats) return;
   statsEl.hidden = false;
-  statsEl.innerHTML =
-    `<b>${f}</b> fps · <b>${(b / 1024).toFixed(0)}</b> KB/s · <b>${Math.round(link.rtt)}</b> ms\n` +
-    `<span class="dim">${screen.streamW}×${screen.streamH} · ${settings.quality} ${serverStats?.q ?? 100}% · frame ${serverStats?.frameRtt ?? '–'} ms · ` +
-    `decode ${f ? (d / f).toFixed(1) : '–'} · encode ${serverStats?.encodeMs ?? '–'} ms${screen.zoom.s > 1.01 ? ` · zoom ${screen.zoom.s.toFixed(1)}×` : ''}</span>`;
+  statsEl.innerHTML = `<b>${f}</b> fps · <b>${(b / 1024).toFixed(0)}</b> KB/s · <b>${Math.round(link.rtt)}</b> ms`;
 }, 1000);
 
 // Debug handle (Safari Web Inspector / tests).

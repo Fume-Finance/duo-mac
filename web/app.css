@@ -428,6 +428,7 @@ html.native-video #screen { visibility: hidden; }
 /* In the bottom-right corner: a row when sideways, a column when upright (folded). */
 #app.screen-only #tools { bottom: max(calc(var(--sab) - 8px), 6px); right: max(var(--sar), 6px); }
 #tools.col { flex-direction: column; align-items: flex-end; }
+#app.screen-only #tools.col { right: 6px; } /* the very edge */
 #tools.col #tool-keys { flex-direction: column; }
 
 /* Beside the trackpad: copy, paste, undo / dictate, return. */
