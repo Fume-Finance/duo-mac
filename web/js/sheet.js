@@ -2,6 +2,14 @@
 import { settings, setSetting } from './settings.js';
 import { native } from './native.js';
 
+/** Full screen: which buttons show next to the settings one (which always does). Tap to turn each on or off. */
+const TOOL_BUTTONS = [['copy', 'Copy'], ['paste', 'Paste'], ['undo', 'Undo'], ['redo', 'Redo'], ['dictate', 'Dictate'], ['keyboard', 'Keyboard']];
+function toolButtonsRow() {
+  const on = new Set(String(settings.toolButtons).split(','));
+  return `<div class="item cards-item"><span class="l">Full-screen buttons<small>Folded or sideways. Tap to show or hide each; ⚙︎ always stays.</small></span>
+    <div class="chips">${TOOL_BUTTONS.map(([id, t]) => `<button type="button" data-tool="${id}" class="chip ${on.has(id) ? 'on' : ''}">${t}</button>`).join('')}</div></div>`;
+}
+
 /** The iPhone app: Apple's dictation or Whisper's, and how Whisper's model is doing. */
 function dictationRow(w) {
   const whisper = settings.dictationEngine === 'whisper';
@@ -234,6 +242,14 @@ export class Sheet {
         else this.actions[act]?.();
         return;
       }
+      const tb = e.target.closest('[data-tool]');
+      if (tb) {
+        const on = new Set(String(settings.toolButtons).split(',').filter(Boolean));
+        if (on.has(tb.dataset.tool)) on.delete(tb.dataset.tool); else on.add(tb.dataset.tool);
+        setSetting('toolButtons', [...on].join(','));
+        tb.classList.toggle('on', on.has(tb.dataset.tool));
+        return;
+      }
       const d = e.target.closest('[data-display]');
       if (d) {
         this.actions.display?.(+d.dataset.display);
@@ -344,7 +360,7 @@ export class Sheet {
     ${toggle('haptics', 'Haptic taps', 'Keys and trackpad taps, felt as you lift your finger')}
     ${toggle('fnStandard', 'Top row: F1–F12 instead of the Mac app’s keys', 'fn switches between them')}
     ${toggle('padButtons', 'Buttons beside the trackpad', 'Trackpad layout: copy, paste, undo, redo, dictate and return')}
-    ${toggle('toolKeys', 'Copy, paste, undo, redo on the full screen', 'Folded or sideways, next to ⌨︎ and ⚙︎')}
+    ${toolButtonsRow()}
     ${settings.layout === 'laptop' ? cards('keyboardSize', 'Size', [['full', 'Edge to edge', keysArt(true)], ['macbook', 'MacBook', keysArt(false)]],
       settings.keyboardSize === 'macbook' ? 'Margins and speaker grilles, like a MacBook' : 'As wide as the iPhone: bigger keys and trackpad') : ''}
     <div class="item"><span class="l">iPhone keyboard<small>Dictation, emoji, accents. Or hold the 🌐 fn key.</small></span>

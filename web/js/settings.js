@@ -11,7 +11,7 @@ export const DEFAULTS = {
   volume: 0.55,
   haptics: true,
   padButtons: true,     // copy, paste, undo, dictate, return beside the trackpad (when there's room)
-  toolKeys: true,       // Screen only (folded, sideways): copy, paste, undo, redo beside the ⌨︎ and ⚙︎ buttons
+  toolButtons: 'copy,paste,undo,redo,dictate,keyboard', // full screen: which buttons show next to ⚙︎ (always there)
   fnStandard: false,    // top row sends F1…F12 instead of the Mac app's keys (appkeys.js)
   quality: 'balanced',  // fast | balanced | sharp
   theme: 'spaceblack',  // spaceblack | silver

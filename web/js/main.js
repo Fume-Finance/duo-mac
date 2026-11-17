@@ -301,8 +301,11 @@ function setMacApp(app) {
 function renderToolKeys() {
   const box = $('#tool-keys');
   box.textContent = '';
-  if (!settings.toolKeys) return;
+  const on = new Set(String(settings.toolButtons).split(','));
+  $('#tool-mic').hidden = !on.has('dictate');
+  $('#tool-kb').hidden = !on.has('keyboard');
   for (const a of TOOL_KEYS) {
+    if (!on.has(a.i)) continue;
     const b = document.createElement('button');
     b.type = 'button';
     b.setAttribute('aria-label', a.l);
@@ -512,7 +515,7 @@ function layout() {
   $('#tools').hidden = v.layout === 'laptop';
   // Full screen: the buttons in a row along the bottom (next to the stats), or, where the row
   // doesn't fit (folded upright), in a column at the right edge.
-  const nButtons = toolsEl.querySelectorAll('button').length;
+  const nButtons = toolsEl.querySelectorAll('button:not([hidden])').length;
   const rowW = nButtons * 38 + (nButtons - 1) * 7 + 12;
   const statsW = settings.stats ? 150 : 0;
   toolsEl.classList.toggle('col', screenOnly && rowW + statsW + 12 > innerWidth);
@@ -719,7 +722,7 @@ onSetting((k, v) => {
   if (k === 'macSound') { link.send({ t: 'sound', on: !!v }); if (!v) speaker.stop(); }
   if (k === 'stats') statsEl.hidden = !v;
   if (k === 'fnStandard') keyboard.renderFnRow();
-  if (k === 'toolKeys') renderToolKeys();
+  if (k === 'toolButtons') { renderToolKeys(); layout(); }
   if (k === 'padButtons') layout();
   if (k === 'macDisplay' || k === 'nanoSize') {
     screen.resetZoom();
