@@ -144,7 +144,9 @@ final class ScreenSource: NSObject, FrameSource, SCStreamOutput, SCStreamDelegat
                     try await Task.sleep(nanoseconds: 250_000_000)
                 }
                 guard let display = found else { throw NanoError.noDisplay }
-                let s = SCStream(filter: SCContentFilter(display: display, excludingWindows: []),
+                let hidden = ScreenSource.unshared()
+                let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+                let s = SCStream(filter: SCContentFilter(display: display, excludingWindows: content.windows.filter { hidden.contains($0.windowID) }),
                                  configuration: ScreenSource.config(want.w, want.h, want.fps), delegate: self)
                 try s.addStreamOutput(self, type: .screen, sampleHandlerQueue: self.sampleQueue)
                 try s.addStreamOutput(self, type: .audio, sampleHandlerQueue: self.audioQueue)
@@ -162,6 +164,8 @@ final class ScreenSource: NSObject, FrameSource, SCStreamOutput, SCStreamDelegat
                         self.stream = s
                         self.streamDisplay = want.display
                         self.active = (want.w, want.h)
+                        self.hiddenWindows = ScreenSource.unshared()
+                        self.watchUnshared()
                         Log.info("Capturing display \(want.display) at \(want.w)×\(want.h)")
                         self.applyResize()
                     } else {
@@ -233,6 +237,42 @@ final class ScreenSource: NSObject, FrameSource, SCStreamOutput, SCStreamDelegat
         c.sampleRate = 48_000
         c.channelCount = 2
         return c
+    }
+
+    // MARK: Windows that don't want to be shared
+
+    /// Windows their app marked as not to be shared (NSWindow.sharingType = .none), e.g. Grammarly's
+    /// Superhuman Go strip on the screen's edge: almost invisible on the Mac, but screen capture draws them
+    /// as a striped placeholder. Left out of the picture, as on the Mac. Any thread.
+    static func unshared() -> Set<CGWindowID> {
+        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else { return [] }
+        return Set(list.compactMap { w in
+            (w[kCGWindowSharingState as String] as? Int) == 0 ? (w[kCGWindowNumber as String] as? CGWindowID) : nil
+        })
+    }
+
+    private var hiddenWindows = Set<CGWindowID>()   // control queue
+    private var unsharedTimer: DispatchSourceTimer?
+
+    /// control queue: every 3 s, if such windows came or went, update the stream's filter.
+    private func watchUnshared() {
+        guard unsharedTimer == nil else { return }
+        let t = DispatchSource.makeTimerSource(queue: control)
+        t.schedule(deadline: .now() + 3, repeating: 3)
+        t.setEventHandler { [weak self] in
+            guard let self, let stream = self.stream else { return }
+            let now = ScreenSource.unshared()
+            guard now != self.hiddenWindows else { return }
+            self.hiddenWindows = now
+            let display = self.streamDisplay
+            Task {
+                guard let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true),
+                      let d = content.displays.first(where: { $0.displayID == display }) else { return }
+                try? await stream.updateContentFilter(SCContentFilter(display: d, excludingWindows: content.windows.filter { now.contains($0.windowID) }))
+            }
+        }
+        t.resume()
+        unsharedTimer = t
     }
 
     // MARK: SCStreamOutput / SCStreamDelegate
