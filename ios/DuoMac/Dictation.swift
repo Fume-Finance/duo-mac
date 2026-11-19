@@ -8,6 +8,8 @@ import Speech
 final class Dictation {
     /// What's been heard so far (main thread), and whether it's final.
     var onText: ((String, Bool) -> Void)?
+    /// Said to you when the last start didn't use the engine you chose (main thread).
+    private(set) var note: String?
     private var modern: AnyObject?          // ModernDictation, on iOS 26+
     @MainActor private var whisper: WhisperDictation?
     private let legacy = LegacyDictation()
@@ -23,11 +25,18 @@ final class Dictation {
 
     @MainActor private func startOnMain(locale: String?, engine: String?, completion: @escaping (String?) -> Void) {
         let loc = locale.map { Locale(identifier: $0) } ?? Locale.current
-        // Whisper (when its model is on the phone) records from the first word; it needs the model only to
-        // transcribe when you stop, so one still loading is waited for then. Not downloaded: Apple's.
+        // Whisper once its model is loaded. Loading takes seconds, but after the app is installed or updated
+        // iOS first prepares the model for this iPhone's Neural Engine, which can take minutes: meanwhile
+        // Apple's engine takes the dictation (and the page says so), rather than you waiting at the end.
         let w = WhisperEngine.shared
-        let useWhisper = engine == "whisper" && w.isDownloaded
-        if useWhisper, w.kit == nil { w.load() }
+        let useWhisper = engine == "whisper" && w.kit != nil
+        if engine == "whisper", w.kit == nil {
+            w.load()
+            note = w.isDownloaded ? "Whisper is still getting ready (a few minutes after the app is updated): Apple’s dictation this time."
+                : "Whisper’s model isn’t on this iPhone: Apple’s dictation. Download it in Settings › Dictation."
+        } else {
+            note = nil
+        }
         // Whisper needs only the microphone; Speech Recognition is for Apple's engine.
         Dictation.permissions(speech: !useWhisper) { error in MainActor.assumeIsolated {
             if let error { return completion(error) }

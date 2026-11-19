@@ -178,7 +178,10 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
 
         case "dictate":
             if m["on"] as? Bool == true {
-                dictation.start(locale: m["lang"] as? String, engine: m["engine"] as? String) { err in replyHandler(err == nil, err) }
+                dictation.start(locale: m["lang"] as? String, engine: m["engine"] as? String) { [weak self] err in
+                    if let err { return replyHandler(nil, err) }
+                    replyHandler(self?.dictation.note.map { ["note": $0] } ?? true, nil)
+                }
             } else {
                 dictation.stop(deliver: m["cancel"] as? Bool != true)
                 replyHandler(true, nil)

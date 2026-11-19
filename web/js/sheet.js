@@ -87,7 +87,7 @@ function dictationRow(w) {
     note = 'Most accurate, any language; types it all when you stop.';
     if (st === 'ready') note += ' Ready.';
     else if (st === 'downloading') note = w.pct >= 100 ? 'Preparing the model (the first time takes a few minutes)…' : `Downloading the model: ${w.pct}%.`;
-    else if (st === 'loading') note = 'Preparing the model…';
+    else if (st === 'loading') note = 'Preparing the model. After the app is installed or updated this takes a few minutes, once; Apple’s is used meanwhile.';
     else if (st === 'wifi') { note = `Waiting for Wi-Fi to download the model (${mb} MB). Apple’s is used meanwhile.`; btn = '<button type="button" class="btn" data-act="whisperCellular">Use Mobile Data</button>'; }
     else if (st === 'failed') { note = 'The model couldn’t be loaded; Apple’s is used.'; btn = '<button type="button" class="btn" data-act="whisperDownload">Try Again</button>'; }
     else if (w?.downloaded) note += ' It loads the first time you dictate (Apple’s meanwhile).';

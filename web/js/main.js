@@ -1344,6 +1344,7 @@ function onAuthed(m) {
   }
   if (pairCode && location.search) history.replaceState(null, '', location.pathname); // the code isn't needed any more
   for (const q of logQueue.splice(0)) link.send(q);
+  logDictation();
   // The Duo display takes its shape from the hello, so give iOS a moment after launch to settle the viewport.
   clearTimeout(helloTimer);
   helloTimer = setTimeout(() => {
@@ -2047,8 +2048,12 @@ function refreshWhisper(extra = {}) {
 // Tells the app which engine is chosen: with Whisper (and its model on the phone) it loads the model now,
 // in the background, so dictating is quick. Nothing downloads from here.
 refreshWhisper();
-native?.call({ t: 'whisper', engine: settings.dictationEngine }).then((st) => remoteLog('info', [
-  `dictation: ${settings.dictationEngine}${settings.dictationEngine === 'whisper' ? ` (model ${st?.downloaded ? 'on the phone' : 'not downloaded'}, ${st?.state})` : ''}`])).catch(() => {});
+/** Which dictation, and Whisper's state, in the Mac's log (once per connection). */
+function logDictation() {
+  native?.call({ t: 'whisper', engine: settings.dictationEngine }).then((st) => remoteLog('info', [
+    `dictation: ${settings.dictationEngine}${settings.dictationEngine === 'whisper' ? ` (model ${st?.downloaded ? 'on the phone' : 'not downloaded'}, ${st?.state})` : ''}`]))
+    .catch((e) => remoteLog('warn', [`dictation: the app didn’t answer (${e?.message || e})`]));
+}
 
 /** The app's own Tailscale (Settings › Connection): its state, as the app reports it. */
 window.duoTailnet = (t) => {

@@ -22,7 +22,8 @@ export class Dictation {
     if (this.starting) return;
     this.starting = true;
     this.show('Listening…', true);
-    native.call({ t: 'dictate', on: true, lang: navigator.language, engine: settings.dictationEngine }).then(() => {
+    native.call({ t: 'dictate', on: true, lang: navigator.language, engine: settings.dictationEngine }).then((r) => {
+      if (r?.note) this.cb.say(r.note, 'info'); // e.g. Whisper still getting ready: Apple's this time
       this.starting = false;
       this.listening = true;
       this.cb.changed(true);
