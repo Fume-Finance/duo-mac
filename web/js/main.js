@@ -2044,6 +2044,11 @@ function refreshWhisper(extra = {}) {
     }
   }).catch(() => {});
 }
+// Tells the app which engine is chosen: with Whisper (and its model on the phone) it loads the model now,
+// in the background, so dictating is quick. Nothing downloads from here.
+refreshWhisper();
+native?.call({ t: 'whisper', engine: settings.dictationEngine }).then((st) => remoteLog('info', [
+  `dictation: ${settings.dictationEngine}${settings.dictationEngine === 'whisper' ? ` (model ${st?.downloaded ? 'on the phone' : 'not downloaded'}, ${st?.state})` : ''}`])).catch(() => {});
 
 /** The app's own Tailscale (Settings › Connection): its state, as the app reports it. */
 window.duoTailnet = (t) => {

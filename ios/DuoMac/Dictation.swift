@@ -23,16 +23,16 @@ final class Dictation {
 
     @MainActor private func startOnMain(locale: String?, engine: String?, completion: @escaping (String?) -> Void) {
         let loc = locale.map { Locale(identifier: $0) } ?? Locale.current
-        // Whisper's model loads on its first dictation (Apple's engine takes that one), and is kept for a
-        // dictation it starts even if the engine lets go of it meanwhile.
+        // Whisper (when its model is on the phone) records from the first word; it needs the model only to
+        // transcribe when you stop, so one still loading is waited for then. Not downloaded: Apple's.
         let w = WhisperEngine.shared
-        let kit = engine == "whisper" ? w.kit : nil
-        if engine == "whisper", kit == nil { w.load() }
+        let useWhisper = engine == "whisper" && w.isDownloaded
+        if useWhisper, w.kit == nil { w.load() }
         // Whisper needs only the microphone; Speech Recognition is for Apple's engine.
-        Dictation.permissions(speech: kit == nil) { error in MainActor.assumeIsolated {
+        Dictation.permissions(speech: !useWhisper) { error in MainActor.assumeIsolated {
             if let error { return completion(error) }
-            if let kit {
-                let d = WhisperDictation(kit: kit)
+            if useWhisper {
+                let d = WhisperDictation(kit: w.kit)
                 d.onText = { [weak self] t, f in self?.onText?(t, f) }
                 do { try d.start(); self.whisper = d; return completion(nil) } catch {
                     Dictation.endSession()

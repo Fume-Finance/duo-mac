@@ -272,6 +272,8 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
             // for Wi-Fi unless mobile data is allowed); and how that's going.
             if let e = m["engine"] as? String { UserDefaults.standard.set(e, forKey: "dictationEngine") }
             let w = WhisperEngine.shared
+            // Chosen and on the phone: load it now, in the background, so the first dictation is quick.
+            if m["engine"] as? String == "whisper" { w.load() }
             if m["download"] as? Bool == true { w.download(cellular: m["cellular"] as? Bool == true) }
             var st = "idle", pct = 0
             switch w.state {

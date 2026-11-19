@@ -141,6 +141,15 @@ final class WhisperEngine {
         }
     }
 
+    /// The model, loading it first if needed (a dictation that started before it was ready waits for it
+    /// here, at the end: it only needs it to transcribe). nil if it isn't downloaded or can't load.
+    func ready() async -> WhisperKit? {
+        if let kit { return kit }
+        load()
+        while state == .loading { try? await Task.sleep(nanoseconds: 100_000_000) }
+        return kit
+    }
+
     private func unload() {
         guard kit != nil else { return }
         kit = nil
@@ -169,15 +178,16 @@ final class WhisperEngine {
 @MainActor
 final class WhisperDictation {
     var onText: ((String, Bool) -> Void)?
-    /// Kept until it has transcribed, even if the engine lets go of it meanwhile.
-    private let kit: WhisperKit
+    /// Kept until it has transcribed, even if the engine lets go of it meanwhile. nil while the model is
+    /// still loading: it records anyway, and waits for the model when you stop.
+    private var kit: WhisperKit?
     private let engine = AVAudioEngine()
     private var samples: [Float] = []
     private let lock = NSLock()
     private var ticker: Timer?
     private var started = Date()
 
-    init(kit: WhisperKit) {
+    init(kit: WhisperKit?) {
         self.kit = kit
     }
 
@@ -233,6 +243,10 @@ final class WhisperDictation {
             return a
         }
         guard audio.count > 8_000 else { return "" } // under half a second
+        if kit == nil {
+            onText?("Loading Whisper…", false)
+            kit = await WhisperEngine.shared.ready()
+        }
         onText?("Transcribing…", false)
         do { return try await transcribe(audio) } catch {
             print("whisper: \(error.localizedDescription)")
@@ -245,6 +259,7 @@ final class WhisperDictation {
         let options = DecodingOptions(task: .transcribe, language: nil, temperatureFallbackCount: 3,
                                       usePrefillPrompt: false, detectLanguage: true, skipSpecialTokens: true,
                                       withoutTimestamps: true, chunkingStrategy: .vad)
+        guard let kit else { throw DictationError(message: "Whisper's model couldn't be loaded.") }
         let results = try await kit.transcribe(audioArray: samples, decodeOptions: options)
         return results.map(\.text).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
     }
