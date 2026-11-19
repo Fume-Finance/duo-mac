@@ -36,25 +36,23 @@ function padArt(withButtons) {
   return `<svg viewBox="0 0 80 50"><rect x="${withButtons ? 17 : 8}" y="7" width="${withButtons ? 46 : 64}" height="36" rx="5" class="frame"/>
     ${withButtons ? side(5) + side(67) : ''}</svg>`;
 }
-/** Dictation, as it looks while you use it. Apple's: you speak and the words appear in the text as you go
- *  (mic, sound, words one by one, the cursor following). Whisper's: it records while you speak (red dot,
- *  sound), and when you stop the whole text appears at once, in any language. */
+/** Dictation, as it looks while you use it. Apple's: you speak and the words appear in the text one by one,
+ *  the cursor following. Whisper's: it records while you speak (red dot, sound), then the whole text appears
+ *  at once, in any language (the globe). */
 function dictArt(whisper) {
-  const mic = (x, y) => `<rect x="${x}" y="${y}" width="5" height="9" rx="2.5" class="mic"/><path d="M${x - 2} ${y + 5}a4.5 4.5 0 0 0 9 0M${x + 2.5} ${y + 9.5}v2.5" class="km"/>`;
-  const wave = (x, y) => `<path d="M${x} ${y}v2M${x + 4} ${y - 3}v8M${x + 8} ${y - 5}v12M${x + 12} ${y - 2}v6M${x + 16} ${y}v2" class="wave dw-wave"/>`;
+  const mic = '<rect x="5.5" y="12" width="9" height="15" rx="4.5" class="mic"/><path d="M2.5 22a7.5 7.5 0 0 0 15 0M10 29.5v5M6 34.5h8" class="km"/>';
+  const box = '<rect x="21" y="7" width="56" height="36" rx="6" class="frame"/>';
   return whisper
-    ? `<svg viewBox="0 0 80 50">
-       <circle cx="9" cy="11" r="2.4" class="rec"/>${mic(15, 6)}${wave(27, 10)}
-       <text x="74" y="13" class="tag" text-anchor="end">EN · IT · ES</text>
-       <rect x="6" y="21" width="68" height="25" rx="5" class="frame"/>
-       <g class="dw-all"><rect x="11" y="27" width="46" height="4" rx="2" class="ln"/><rect x="11" y="34" width="56" height="4" rx="2" class="ln"/></g></svg>`
-    : `<svg viewBox="0 0 80 50">
-       ${mic(10, 6)}${wave(22, 10)}<text x="74" y="13" class="tag live" text-anchor="end">LIVE</text>
-       <rect x="6" y="21" width="68" height="25" rx="5" class="frame"/>
-       <rect x="11" y="27" width="14" height="4" rx="2" class="ln dw-1"/><rect x="27" y="27" width="10" height="4" rx="2" class="ln dw-2"/>
-       <rect x="39" y="27" width="17" height="4" rx="2" class="ln dw-3"/><rect x="11" y="34" width="12" height="4" rx="2" class="ln dw-4"/>
-       <rect x="24.5" y="33" width="1.6" height="6" class="caret dw-caret"/></svg>`;
+    ? `<svg viewBox="0 0 80 50">${mic}<circle cx="15" cy="10" r="3" class="rec"/>${box}
+       <path d="M30 25v0M35 21v8M40 17v16M45 20v10M50 15v20M55 21v8M60 18v14M65 23v4M70 25v0" class="wave dw-rec"/>
+       <g class="dw-all"><rect x="27" y="14" width="44" height="5" rx="2.5" class="ln"/><rect x="27" y="23" width="38" height="5" rx="2.5" class="ln"/><rect x="27" y="32" width="24" height="5" rx="2.5" class="ln"/></g>
+       <g class="globe"><circle cx="71" cy="37" r="5"/><path d="M66 37h10M71 32c-2.6 3-2.6 7 0 10M71 32c2.6 3 2.6 7 0 10"/></g></svg>`
+    : `<svg viewBox="0 0 80 50">${mic}${box}
+       <rect x="27" y="14" width="15" height="5" rx="2.5" class="ln dw-1"/><rect x="44" y="14" width="10" height="5" rx="2.5" class="ln dw-2"/>
+       <rect x="56" y="14" width="15" height="5" rx="2.5" class="ln dw-3"/><rect x="27" y="24" width="13" height="5" rx="2.5" class="ln dw-4"/>
+       <rect x="41.5" y="23" width="2" height="7" class="caret dw-caret"/></svg>`;
 }
+
 /** Touching the screen in the Laptop/Trackpad layouts: a tap clicks there, or nothing. */
 function tapArt(on) {
   return `<svg viewBox="0 0 80 50"><rect x="14" y="2" width="52" height="46" rx="5" class="frame"/>${desk(16, 4, 48, 42)}

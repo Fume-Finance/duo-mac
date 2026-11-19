@@ -488,26 +488,25 @@ html.native-video #screen { visibility: hidden; }
 .cards svg .km, .cards svg .wave, .cards svg .cross { fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; opacity: .8; }
 .cards svg .dk { fill: currentColor; opacity: .12; }
 .cards svg .caret { fill: #0a84ff; }
-/* Dictation pictures (sheet.js dictArt): Apple's words appear one by one as you speak; Whisper records,
-   then the whole text appears at once. */
-.cards svg .mic { fill: currentColor; opacity: .85; }
-.cards svg .rec { fill: #ff453a; animation: dw-blink 1s steps(2, start) infinite; }
-.cards svg .tag { font: 700 5.4px -apple-system, system-ui, sans-serif; fill: currentColor; opacity: .7; letter-spacing: .02em; }
-.cards svg .tag.live { fill: #30d158; opacity: 1; }
-.cards svg .dw-wave { animation: dw-talk .9s ease-in-out infinite alternate; transform-origin: 50% 50%; transform-box: fill-box; }
+/* Dictation pictures (sheet.js dictArt): Apple's words appear one by one as you speak; Whisper records
+   (red dot, sound), then the whole text appears at once, in any language (the globe). */
+.cards svg .mic { fill: currentColor; opacity: .9; }
+.cards svg .rec { fill: #ff453a; animation: dw-rec 4s infinite; }
+.cards svg .globe { fill: none; stroke: #64d2ff; stroke-width: 1.3; }
+.cards svg .dw-rec { stroke: #ff453a; opacity: 1; animation: dw-sound 4s infinite; }
 .cards svg .dw-1, .cards svg .dw-2, .cards svg .dw-3, .cards svg .dw-4 { animation: dw-word 4s infinite; }
 .cards svg .dw-2 { animation-name: dw-word2; }
 .cards svg .dw-3 { animation-name: dw-word3; }
 .cards svg .dw-4 { animation-name: dw-word4; }
 .cards svg .dw-caret { animation: dw-caret 4s infinite; }
 .cards svg .dw-all { animation: dw-all 4s infinite; }
-@keyframes dw-blink { to { opacity: .25; } }
-@keyframes dw-talk { from { transform: scaleY(.45); } to { transform: scaleY(1); } }
+@keyframes dw-rec { 0%, 55% { opacity: 1; } 60%, 100% { opacity: 0; } }
+@keyframes dw-sound { 0%, 55% { opacity: 1; } 60%, 100% { opacity: 0; } }
 @keyframes dw-word { 0%, 8% { opacity: 0; } 12%, 88% { opacity: 1; } 96%, 100% { opacity: 0; } }
 @keyframes dw-word2 { 0%, 24% { opacity: 0; } 28%, 88% { opacity: 1; } 96%, 100% { opacity: 0; } }
 @keyframes dw-word3 { 0%, 40% { opacity: 0; } 44%, 88% { opacity: 1; } 96%, 100% { opacity: 0; } }
 @keyframes dw-word4 { 0%, 56% { opacity: 0; } 60%, 88% { opacity: 1; } 96%, 100% { opacity: 0; } }
-@keyframes dw-caret { 0%, 10% { transform: translate(-13.5px, -7px); } 12%, 26% { transform: translate(1px, -7px); } 28%, 42% { transform: translate(13px, -7px); } 44%, 58% { transform: translate(32px, -7px); } 60%, 100% { transform: translate(0, 0); } }
+@keyframes dw-caret { 0%, 10% { transform: translate(-15px, -10px); } 12%, 26% { transform: translate(1.5px, -10px); } 28%, 42% { transform: translate(13.5px, -10px); } 44%, 58% { transform: translate(30.5px, -10px); } 60%, 100% { transform: translate(0, 0); } }
 @keyframes dw-all { 0%, 58% { opacity: 0; } 62%, 92% { opacity: 1; } 100% { opacity: 0; } }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .chip {
