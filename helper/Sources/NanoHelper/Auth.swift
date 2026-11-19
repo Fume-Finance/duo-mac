@@ -85,8 +85,9 @@ struct PeerInfo {
         let fwd = headers["x-forwarded-for"]?.split(separator: ",").first.map { $0.trimmingCharacters(in: .whitespaces) }
         viaTailscale = fwd != nil
         local = headers["x-duo-local"] == "1"
-        address = fwd ?? socketRemote
-        user = headers["tailscale-user-login"].flatMap { $0.isEmpty ? nil : $0 }
+        // Both end up in the logs and the Mac's window: no control characters (escape sequences).
+        address = (fwd ?? socketRemote).withoutControlCharacters
+        user = headers["tailscale-user-login"].map(\.withoutControlCharacters).flatMap { $0.isEmpty ? nil : $0 }
         host = PeerInfo.stripPort(headers["x-forwarded-host"] ?? headers["host"] ?? "localhost")
     }
 
@@ -102,6 +103,14 @@ struct PeerInfo {
     static func stripPort(_ h: String) -> String {
         if h.hasPrefix("[") { return String(h.dropFirst().prefix { $0 != "]" }) }
         return String(h.split(separator: ":").first ?? "").lowercased()
+    }
+}
+
+extension String {
+    /// Without control characters (line breaks, terminal escape sequences, text-direction overrides):
+    /// for names and addresses a phone sent, before they go into a log or on the Mac's screen.
+    var withoutControlCharacters: String {
+        String(String.UnicodeScalarView(unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) }))
     }
 }
 
@@ -191,6 +200,8 @@ final class ConnectionLog {
     }
 
     func add(_ text: String) {
+        // Lines name devices and addresses that phones sent: one line each, no escape sequences.
+        let text = text.withoutControlCharacters
         Log.info("🔐 \(text)")
         let line = "\(stamp.string(from: Date()))  \(text)\n"
         queue.async { [url] in
@@ -236,10 +247,20 @@ final class AuthManager {
         }
     }
 
+    /// A connection's last pairing request: one every `pairEvery` seconds per connection, so a phone
+    /// can't flood the Mac with sounds and windows.
+    private struct PairAsk {
+        weak var session: Session?
+        let at: Date
+    }
+    static let pairEvery: TimeInterval = 10
+
     private var tickets: [String: Ticket] = [:]   // SHA-256 (hex) of the ticket → ticket
     private var pendingPair: PairRequest?
+    private var pairAsks: [PairAsk] = []
     private var pinChecking = Set<String>()       // device IDs with a PIN check running
     private let refusals = LogBudget(perMinute: 10) // strangers knocking: not a line each
+    private let reconnects = LogBudget(perMinute: 6) // a phone on a flaky network: not a line each time
 
     init(core: NanoCore, dir: URL) {
         self.core = core
@@ -303,6 +324,9 @@ final class AuthManager {
             return
         }
         if let t = m["ticket"] as? String, ticketValid(t, for: d.id) {
+            reconnects.log {
+                log.add("\(d.name) reconnected (unlocked less than \(Int(AuthManager.ticketLife / 60)) minutes ago) from \(s.peer.description)")
+            }
             return grant(s, d, via: nil)
         }
         challenge(s, d)
@@ -415,12 +439,25 @@ final class AuthManager {
             s.send(["t": "pair-fail", "reason": "bad-code"])
             return
         }
+        // Asking again while its request is up: the same code again, without a new sound or window.
+        if let p = pendingPair, p.session === s {
+            s.stage = .waiting
+            s.send(["t": "pair-wait", "match": p.match])
+            return
+        }
+        let now = Date()
+        pairAsks.removeAll { $0.session == nil || now.timeIntervalSince($0.at) >= AuthManager.pairEvery }
+        guard !pairAsks.contains(where: { $0.session === s }) else {
+            s.send(["t": "pair-fail", "reason": "too-soon"])
+            return
+        }
         if let p = pendingPair, let other = p.session, other !== s, !other.ws.isClosed,
            Date().timeIntervalSince(p.created) < 120 {
             s.send(["t": "pair-fail", "reason": "busy"])
             return
         }
-        let raw = (m["name"] as? String ?? "").filter { !$0.isNewline && $0 != "\u{0}" }
+        pairAsks.append(PairAsk(session: s, at: now))
+        let raw = (m["name"] as? String ?? "").withoutControlCharacters
         let name = raw.isEmpty ? s.clientName : String(raw.prefix(40))
         let b = Crypto.randomBytes(2)
         let match = String(format: "%04d", (Int(b[0]) << 8 | Int(b[1])) % 10000)
@@ -434,7 +471,8 @@ final class AuthManager {
         if s.peer.viaTailscale {
             core.tailscale.whois(s.peer.address, replyQueue: core.server.queue) { [weak self, weak req] found in
                 guard let self, let req, let found, self.pendingPair === req else { return }
-                req.name = (raw.isEmpty || raw == "iPhone" || raw == "iPad") ? found : name
+                let better = String(found.withoutControlCharacters.prefix(40))
+                req.name = (raw.isEmpty || raw == "iPhone" || raw == "iPad") && !better.isEmpty ? better : name
                 self.core.showPairingRequest(req)
             }
         }
@@ -550,10 +588,14 @@ final class AuthManager {
         log.add("Paired \(d.name) (\(how))")
         s.send(["t": "paired", "dev": d.id, "tok": pd.token])
         grant(s, d, via: nil)
+        // The code on the Mac's screen did its job: a new one, so a photo of it can't start another pairing.
+        core.resetPairing()
     }
 
     private func grant(_ s: Session, _ d: PairedDevice, via: String?) {
         var d = d
+        // Unlocked: big messages are fine now (pictures for the clipboard).
+        s.ws.maxMessage = WebSocketConnection.maxAuthedMessage
         s.stage = .authed(d.id)
         s.challenge = nil
         s.clientName = d.name
@@ -597,6 +639,8 @@ final class AuthManager {
         log.add("Removed \(d.name)")
         core.closeSessions(where: { $0.deviceID == id }, code: 4003, message: ["t": "revoked"])
         core.devicesChanged()
+        // A removed phone may still know the code: it has to be at the Mac again to come back.
+        core.resetPairing()
     }
 
     private func issueTicket(for id: String) -> String {
@@ -676,6 +720,9 @@ enum AuthSelfTest {
         expect(peer.viaTailscale && peer.rpId == "your-mac.tail1234.ts.net" && peer.address == "100.101.102.103", "peer via Tailscale")
         expect(PeerInfo(headers: ["host": "127.0.0.1:8890"], socketRemote: "127.0.0.1").rpId == nil, "no passkeys on an IP address")
         expect(PeerInfo(headers: ["host": "localhost:8891"], socketRemote: "127.0.0.1").rpId == "localhost", "localhost for tests")
+        let sneaky = PeerInfo(headers: ["x-forwarded-for": "100.1.2.3\u{1b}[2J", "tailscale-user-login": "me@example.com\r\n\u{202e}x"],
+                              socketRemote: "127.0.0.1")
+        expect(sneaky.description == "100.1.2.3[2J (me@example.comx)", "no control characters in what's logged")
         print(ok ? "All auth checks passed." : "Some auth checks FAILED.")
         return ok
     }

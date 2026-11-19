@@ -19,6 +19,8 @@ for sig in [SIGINT, SIGTERM] {
     signal(sig, SIG_IGN)
     let src = DispatchSource.makeSignalSource(signal: sig, queue: .main)
     src.setEventHandler {
+        // Asked to quit (Duo Mac.app quitting, the installer, pkill): not a crash, so it stays closed.
+        Watchdog.markCleanExit()
         core.shutdown()
         exit(0)
     }
@@ -55,6 +57,12 @@ if CommandLine.arguments.contains("--nano-selftest") {
 if let path = options.snapshotUI {
     UISnapshot.render(core: core, to: path)
     exit(0)
+}
+
+// Started by Duo Mac.app (not a test run): open it again if the helper crashes, and at login if wanted.
+if ProcessInfo.processInfo.environment["NANO_LAUNCHER_APP"] != nil {
+    Watchdog.start()
+    LoginItem.apply(core.config.openAtLogin)
 }
 
 let delegate = AppDelegate(core: core, headless: options.headless)

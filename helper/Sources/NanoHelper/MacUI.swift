@@ -127,6 +127,107 @@ extension AppModel {
     var rateLine: String {
         String(format: "%.0f fps · %@", fps, kbps >= 1024 ? String(format: "%.1f MB/s", kbps / 1024) : String(format: "%.0f KB/s", kbps))
     }
+
+    /// What keeps the iPhone from using this Mac right now: the first check that fails. (On a Mac that
+    /// was never set up, the missing steps are the setup guide's business.)
+    var problem: MacProblem? {
+        if serverError != nil {
+            return MacProblem(text: "Port \(port) is used by another app: quit it, or restart the Mac")
+        }
+        guard setUpBefore else { return nil }
+        if reachTrouble, let p = tailscaleProblem { return p }
+        if !screenOK {
+            return MacProblem(text: "Screen Recording was switched off: turn on Duo Mac in System Settings › Privacy & Security",
+                              fix: .screenRecording)
+        }
+        if !inputOK {
+            return MacProblem(text: "Keyboard and trackpad are off: turn on Duo Mac in System Settings › Privacy & Security › Accessibility",
+                              fix: .accessibility)
+        }
+        return nil
+    }
+
+    /// Why the iPhone can't reach this Mac through Tailscale, as of the last check (nil: it can, it's
+    /// still being checked, or it isn't meant to). It counts once it has lasted (`reachTrouble`).
+    var tailscaleProblem: MacProblem? {
+        guard allowConnections, !localMode else { return nil }
+        let ts = tailscale
+        switch ts.phase {
+        case .starting:
+            return nil
+        case .ready:
+            if !ts.serving { return MacProblem(text: "Can't be reached: Tailscale isn't serving this Mac", fix: .checkAgain) }
+            if !ts.reachable { return MacProblem(text: "Can't be reached: this Mac's Tailscale address doesn't answer", fix: .checkAgain) }
+            return nil
+        case .notInstalled:
+            return builtinTailscale ? MacProblem(text: "Can't be reached: built-in Tailscale is missing")
+                                    : MacProblem(text: "Can't be reached: Tailscale isn't installed on this Mac", fix: .getTailscale)
+        case .notRunning, .stopped:
+            return MacProblem(text: "Can't be reached: Tailscale is off on this Mac", fix: builtinTailscale ? .checkAgain : .openTailscale)
+        case .needsLogin:
+            return MacProblem(text: "Can't be reached: Tailscale is signed out on this Mac", fix: .signIn)
+        case .needsApproval:
+            return MacProblem(text: "Can't be reached: approve this Mac in the Tailscale admin console", fix: .adminConsole)
+        case .needsHTTPS:
+            return MacProblem(text: "Can't be reached: turn on HTTPS in the Tailscale admin console", fix: .enableHTTPS)
+        }
+    }
+}
+
+/// Something that keeps the iPhone from using this Mac, and the button that fixes it (if there is one).
+struct MacProblem: Equatable {
+    enum Fix {
+        case screenRecording, accessibility, getTailscale, openTailscale, signIn, adminConsole, enableHTTPS, checkAgain
+
+        var title: String {
+            switch self {
+            case .screenRecording, .accessibility: "Open System Settings"
+            case .getTailscale: "Get Tailscale"
+            case .openTailscale: "Open Tailscale"
+            case .signIn: "Sign In…"
+            case .adminConsole: "Admin Console…"
+            case .enableHTTPS: "Turn On HTTPS…"
+            case .checkAgain: "Check Again"
+            }
+        }
+
+        func run(_ a: StatusActions) {
+            switch self {
+            case .screenRecording: a.allowScreenRecording()
+            case .accessibility: a.allowAccessibility()
+            case .getTailscale: a.getTailscale()
+            case .openTailscale: a.openTailscale()
+            case .signIn: a.signIn()
+            case .adminConsole: a.openAdmin()
+            case .enableHTTPS: a.enableHTTPS()
+            case .checkAgain: a.checkTailscale()
+            }
+        }
+    }
+
+    let text: String
+    var fix: Fix? = nil
+}
+
+/// The status line in the menu bar panel and the Settings window.
+struct ProblemLine: View {
+    let problem: MacProblem
+    let actions: StatusActions
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(problem.text)
+                if let fix = problem.fix {
+                    Button(fix.title) { fix.run(actions) }.controlSize(.small)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.orange.opacity(0.12)))
+    }
 }
 
 // MARK: - Pairing request
@@ -185,7 +286,10 @@ struct MenuPanelView: View {
             header
             if let p = model.pairing { ApprovalCard(prompt: p, actions: actions, compact: true) }
             connection
-            if !SetupStep.allDone(model) {
+            let problem = model.problem
+            if let problem { ProblemLine(problem: problem, actions: actions) }
+            // On a Mac set up before, a problem gets the line above (Tailscale's once it lasts), not the guide.
+            if !SetupStep.allDone(model) && (!model.setUpBefore || (problem == nil && model.tailscaleProblem == nil)) {
                 Button { close(); open(nil) } label: {
                     HStack {
                         Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
@@ -326,6 +430,14 @@ struct SettingsView: View {
                 case .setup: SetupPage(model: model, actions: actions, openGuide: openGuide)
                 }
             }
+            // Above every page while something keeps the iPhone from using this Mac.
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if let problem = model.problem {
+                    ProblemLine(problem: problem, actions: actions)
+                        .padding(.horizontal, 20)
+                        .padding(.top, 12)
+                }
+            }
             .navigationTitle(router.section.title)
         }
         .frame(minWidth: 580, minHeight: 360)
@@ -361,6 +473,10 @@ struct GeneralPage: View {
             }
             Section {
                 Toggle("Allow iPhone connections", isOn: Binding(get: { model.allowConnections }, set: actions.setAllow))
+                Toggle(isOn: Binding(get: { model.openAtLogin }, set: actions.setOpenAtLogin)) {
+                    Text("Open at login")
+                    Text("So your iPhone can reach this Mac after a restart.")
+                }
                 Toggle(isOn: Binding(get: { model.stayReachable }, set: actions.setStayReachable)) {
                     Text("Stay reachable while I'm away")
                     Text("This Mac won't sleep. Keep it plugged in; a closed MacBook still sleeps without an external display.")
@@ -447,18 +563,26 @@ struct AddPhonePage: View {
                         ScanQR(qr: qr, side: 132)
                         VStack(alignment: .leading, spacing: 12) {
                             Text("Pair an iPhone").font(.title3.weight(.semibold))
-                            PairStep(n: 1, text: "Open **Duo Mac** on the iPhone")
-                            PairStep(n: 2, text: "Tap **Scan QR Code**, or type the code:")
-                            HStack(spacing: 10) {
-                                PairCodeBoxes(code: model.pairCode)
-                                Button {
-                                    NSPasteboard.general.clearContents()
-                                    NSPasteboard.general.setString(model.pairCode.replacingOccurrences(of: "-", with: ""), forType: .string)
-                                } label: { Image(systemName: "doc.on.doc") }
-                                .buttonStyle(.borderless).help("Copy the code")
+                            VStack(alignment: .leading, spacing: 4) {
+                                PairStep(n: 1, text: "Scan this code with the iPhone's **Camera**")
+                                Text("(In the Duo Mac app: **Scan QR Code**.)")
+                                    .font(.callout).foregroundStyle(.secondary)
+                                    .padding(.leading, 30)
+                            }
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Or type the code:").font(.callout).foregroundStyle(.secondary)
+                                HStack(spacing: 10) {
+                                    PairCodeBoxes(code: model.pairCode)
+                                    Button {
+                                        NSPasteboard.general.clearContents()
+                                        NSPasteboard.general.setString(model.pairCode.replacingOccurrences(of: "-", with: ""), forType: .string)
+                                    } label: { Image(systemName: "doc.on.doc") }
+                                    .buttonStyle(.borderless).help("Copy the code")
+                                }
+                                if !model.localMode { TailscaleHint(account: model.tailscale.account) }
                             }
                             .padding(.leading, 30)
-                            PairStep(n: 3, text: "Click **Allow** here when it asks")
+                            PairStep(n: 2, text: "Click **Allow** here when it asks")
                         }
                         Spacer(minLength: 0)
                     }
@@ -511,7 +635,7 @@ struct AddPhonePage: View {
     }
 }
 
-/// A numbered step: (1) Open Duo Mac on the iPhone.
+/// A numbered step: (1) Scan this code with the iPhone's Camera.
 struct PairStep: View {
     let n: Int
     let text: LocalizedStringKey
@@ -846,7 +970,7 @@ struct SetupGuideView: View {
             default: return "Starting Tailscale…"
             }
         case .https: return ts.detail == "MagicDNS is off" ? "Turn on MagicDNS and HTTPS in the admin console." : "One click in the Tailscale admin console."
-        case .phoneTailscale: return "Use the same account as this Mac."
+        case .phoneTailscale: return ts.account.map { "Sign in with \($0), the same account as this Mac." } ?? "Use the same account as this Mac."
         case .screen: return "So your iPhone can show this Mac's screen."
         case .accessibility: return "So your iPhone can type and click."
         case .pair: return "Then open it from the Home Screen."

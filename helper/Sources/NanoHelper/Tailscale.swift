@@ -21,6 +21,9 @@ final class Tailscale {
         var detail: String?
 
         var url: String? { dnsName.map { "https://\($0)" } }
+        /// The account to sign in with on the iPhone: this Mac's (nil before it's known, or for a
+        /// tagged device, which has no account).
+        var account: String? { login.flatMap { $0.contains("@") ? $0 : nil } }
     }
 
     static let cli: String? = [
@@ -131,15 +134,25 @@ final class Tailscale {
         let certs = (json["CertDomains"] as? [String] ?? []).map { $0.lowercased() }
         st.enableURL = previous.enableURL
 
-        if builtin != nil {
+        if let b = builtin {
             // It serves by itself once HTTPS certificates are on for the tailnet (admin console › DNS).
             guard let dnsName = st.dnsName, magicDNS, certs.contains(dnsName) else {
                 st.phase = .needsHTTPS
                 st.detail = magicDNS ? "Turn on HTTPS Certificates in the Tailscale admin console (DNS)" : "MagicDNS is off"
                 return st
             }
-            st.serving = wantServe
-            st.reachable = wantServe
+            if wantServe {
+                // It opens https://<dnsName>/healthz itself, over the tailnet, the way an iPhone does: this
+                // Mac may not be on the tailnet at all (no Tailscale app), so it can't try from here.
+                if let p = b.get("/probe", timeout: 25) {
+                    st.serving = p["serving"] as? Bool ?? false
+                    st.reachable = st.serving && p["reachable"] as? Bool == true
+                } else {
+                    // A built-in Tailscale from before it could check: taken at its word, as before.
+                    st.serving = true
+                    st.reachable = true
+                }
+            }
             st.phase = .ready
             return st
         }

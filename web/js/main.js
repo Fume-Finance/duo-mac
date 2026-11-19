@@ -1129,6 +1129,7 @@ function pairFailed(reason) {
     busy: 'Another device is pairing right now. Try again in a minute.',
     denied: 'Your Mac said no.',
     timeout: 'Nobody answered on the Mac. Try again.',
+    'too-soon': 'One moment: your Mac is still showing the last request. Try again in a few seconds.',
   };
   if (reason === 'bad-code') pairCode = '';
   if (reason === 'no-unlock') return askPin('required');

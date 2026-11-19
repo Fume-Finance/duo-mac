@@ -73,14 +73,25 @@ final class Microphone {
     /// Copies the driver into /Library/Audio/Plug-Ins/HAL and restarts Core Audio (sound stops for a
     /// second). macOS asks for an administrator password. `done` runs on the main thread.
     static func install(from source: URL, done: @escaping (Bool, String?) -> Void) {
-        let src = source.path, dest = installedPath
-        let shell = "/bin/mkdir -p /Library/Audio/Plug-Ins/HAL && /bin/rm -rf '\(dest)' && /bin/cp -R '\(src)' '\(dest)'"
-            + " && /usr/sbin/chown -R root:wheel '\(dest)' && /usr/bin/killall coreaudiod"
-        let script = "do shell script \"\(shell)\" with prompt \"Duo Mac wants to add the Duo Mac Microphone.\" with administrator privileges"
+        if let problem = sourceProblem(source.path) {
+            DispatchQueue.main.async { done(false, problem) }
+            return
+        }
+        // The copy runs as root. The paths reach the shell only through AppleScript's `quoted form of`
+        // (they're the script's arguments, never part of its text), and the root shell checks the
+        // source once more right before copying, in case it was swapped while the password was asked.
+        let script = [
+            "on run argv",
+            "set src to quoted form of item 1 of argv",
+            "set dest to quoted form of item 2 of argv",
+            "set owner to quoted form of item 3 of argv",
+            #"do shell script "test -d " & src & " && test ! -L " & src & " && test \"$(/usr/bin/stat -f %u " & src & ")\" = " & owner & " && /bin/mkdir -p /Library/Audio/Plug-Ins/HAL && /bin/rm -rf " & dest & " && /bin/cp -R " & src & " " & dest & " && /usr/sbin/chown -R root:wheel " & dest & " && /usr/bin/killall coreaudiod" with prompt "Duo Mac wants to add the Duo Mac Microphone." with administrator privileges"#,
+            "end run",
+        ]
         DispatchQueue.global().async {
             let p = Process()
             p.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-            p.arguments = ["-e", script]
+            p.arguments = script.flatMap { ["-e", $0] } + [source.path, installedPath, String(getuid())]
             let err = Pipe()
             p.standardError = err
             p.standardOutput = FileHandle.nullDevice
@@ -95,6 +106,17 @@ final class Microphone {
             // Core Audio takes a moment to come back with the new device.
             DispatchQueue.main.asyncAfter(deadline: .now() + (ok ? 2 : 0)) { done(ok, ok ? nil : message) }
         }
+    }
+
+    /// Why the driver at `path` mustn't be copied into the system as root, or nil if it may: it must be
+    /// a real folder (a link could point the copy somewhere else) that belongs to this Mac account.
+    static func sourceProblem(_ path: String) -> String? {
+        var st = stat()
+        guard lstat(path, &st) == 0 else { return "The driver isn't there (\(path)). Run ./build.sh in the duo-mac folder, then try again." }
+        guard st.st_mode & S_IFMT == S_IFDIR, st.st_uid == getuid() else {
+            return "The driver at \(path) is a link, or not a folder of yours, so Duo Mac won't add it. Run ./build.sh in the duo-mac folder, then try again."
+        }
+        return nil
     }
 
     // MARK: Streaming (main thread)

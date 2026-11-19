@@ -45,6 +45,12 @@ final class AppModel: ObservableObject {
     @Published var micActive = false
     @Published var micNeedsUpdate = false
     @Published var localAddress = ""          // local mode: e.g. "MacBook-Pro-3.local · 192.168.1.13"
+    @Published var openAtLogin = true
+    @Published var port: UInt16 = 8890        // the helper's (set once at launch)
+    /// The setup guide got to the end once on this Mac: something missing now was switched off since.
+    @Published var setUpBefore = false
+    /// `tailscaleProblem` has lasted a while (AppDelegate): one failed check isn't worth a warning.
+    @Published var reachTrouble = false
 }
 
 /// Things the window's buttons do.
@@ -88,6 +94,7 @@ struct StatusActions {
     }
 
     func relaunch() {
+        Watchdog.markCleanExit() // it opens again below, by itself
         core.shutdown()
         if let launcher = ProcessInfo.processInfo.environment["NANO_LAUNCHER_APP"] {
             // Our launcher app owns the permissions; reopen it after we've quit.
@@ -115,6 +122,13 @@ struct StatusActions {
     func setStayReachable(_ on: Bool) { core.setStayReachable(on) }
     func answer(_ id: UUID, allow: Bool) { core.answerPairing(id, allow: allow) }
     func checkTailscale() { core.refreshTailscale() }
+
+    func setOpenAtLogin(_ on: Bool) {
+        core.updateConfig { $0.openAtLogin = on }
+        core.model.openAtLogin = on
+        // A test copy with settings of its own (--config-dir) leaves this Mac's login items alone.
+        if core.options.configDir == nil { LoginItem.apply(on) }
+    }
 
     func remove(_ d: DeviceRow) {
         let a = NSAlert()
@@ -151,12 +165,21 @@ struct StatusActions {
     }
 }
 
-/// Menu bar icon: green while an iPhone is in control. Clicking it opens the Duo Mac panel.
+/// Menu bar icon: green while an iPhone is in control, with an orange dot while something keeps the
+/// iPhone from using this Mac (`AppModel.problem`). Clicking it opens the Duo Mac panel.
 final class StatusItemController: NSObject {
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     private let core: NanoCore
     private let popover = NSPopover()
-    private var watch: AnyCancellable?
+    private var watch: [AnyCancellable] = []
+    private let badge: NSView = {
+        let v = NSView(frame: NSRect(x: 0, y: 0, width: 7, height: 7))
+        v.wantsLayer = true
+        v.layer?.backgroundColor = NSColor.systemOrange.cgColor
+        v.layer?.cornerRadius = 3.5
+        v.isHidden = true
+        return v
+    }()
 
     init(core: NanoCore, open: @escaping (SettingsSection?) -> Void) {
         self.core = core
@@ -168,8 +191,12 @@ final class StatusItemController: NSObject {
             close: { [weak self] in self?.popover.performClose(nil) }))
         item.button?.target = self
         item.button?.action = #selector(toggle)
-        watch = core.model.$connected.receive(on: RunLoop.main).sink { [weak self] on in self?.update(on) }
-        update(false)
+        item.button?.addSubview(badge)
+        watch = [
+            core.model.$connected.receive(on: RunLoop.main).sink { [weak self] _ in self?.update() },
+            core.model.objectWillChange.debounce(for: .milliseconds(300), scheduler: RunLoop.main).sink { [weak self] _ in self?.update() },
+        ]
+        update()
     }
 
     /// The Duo Mac glyph (a MacBook with a folded iPhone Duo in front of it), drawn by macOS as a template.
@@ -181,10 +208,17 @@ final class StatusItemController: NSObject {
         return img
     }()
 
-    private func update(_ connected: Bool) {
-        item.button?.image = glyph ?? NSImage(systemSymbolName: "laptopcomputer.and.iphone", accessibilityDescription: "Duo Mac")
-        item.button?.contentTintColor = connected ? .systemGreen : nil
-        item.button?.toolTip = connected ? "Duo Mac: \(core.model.clientName)" : "Duo Mac"
+    private func update() {
+        guard let b = item.button else { return }
+        let m = core.model, problem = m.problem
+        b.image = glyph ?? NSImage(systemSymbolName: "laptopcomputer.and.iphone", accessibilityDescription: "Duo Mac")
+        b.contentTintColor = m.connected ? .systemGreen : nil
+        b.toolTip = problem.map { "Duo Mac: \($0.text)" } ?? (m.connected ? "Duo Mac: \(m.clientName)" : "Duo Mac")
+        b.setAccessibilityValue(problem?.text)
+        // Top right of the icon.
+        badge.setFrameOrigin(NSPoint(x: b.bounds.maxX - badge.frame.width - 1,
+                                     y: b.isFlipped ? 2 : b.bounds.maxY - badge.frame.height - 2))
+        badge.isHidden = problem == nil
     }
 
     @objc private func toggle() {
@@ -295,6 +329,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.accessory)
         buildMenu()
         if let icon = core.appIcon { NSApp.applicationIconImage = icon }
+        core.model.port = core.port
+        core.model.openAtLogin = core.config.openAtLogin
+        core.model.setUpBefore = UserDefaults.standard.bool(forKey: "setupDoneOnce")
         statusItem = StatusItemController(core: core) { [weak self] section in
             if let section { self?.showSettings(section) } else { self?.showGuide() }
         }
@@ -319,23 +356,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         watchers.append(core.model.objectWillChange.debounce(for: .seconds(1), scheduler: RunLoop.main)
             .sink { [weak self] _ in
                 guard let self, SetupStep.allDone(self.core.model) else { return }
-                UserDefaults.standard.set(true, forKey: "setupDoneOnce")
+                self.markSetUp()
                 if self.guideOpenedByItself, self.guideWindow?.isVisible == true {
                     Log.info("Setup complete: closing the setup guide")
                     self.guideWindow?.close()
                 }
                 self.guideOpenedByItself = false
             })
+        // Tailscale trouble is shown once it has lasted 15 s: one failed check (the Mac just woke up,
+        // a slow network) isn't worth a warning.
+        watchers.append(core.model.objectWillChange.debounce(for: .milliseconds(300), scheduler: RunLoop.main)
+            .map { [weak self] _ in self?.core.model.tailscaleProblem != nil }
+            .removeDuplicates()
+            .map { failing -> AnyPublisher<Bool, Never> in
+                failing ? Just(true).delay(for: .seconds(15), scheduler: RunLoop.main).eraseToAnyPublisher()
+                        : Just(false).eraseToAnyPublisher()
+            }
+            .switchToLatest()
+            .removeDuplicates()
+            .sink { [weak self] on in self?.core.model.reachTrouble = on })
     }
 
     private var guideOpenedByItself = false
+
+    private func markSetUp() {
+        UserDefaults.standard.set(true, forKey: "setupDoneOnce")
+        if !core.model.setUpBefore { core.model.setUpBefore = true }
+    }
 
     /// At launch. On a Mac that was set up before, give things like Tailscale up to 30 s after a
     /// restart before showing the guide; on the first run, show it straight away.
     private func checkSetupAtLaunch(tries: Int) {
         core.refreshModel()
         if SetupStep.allDone(core.model) {
-            UserDefaults.standard.set(true, forKey: "setupDoneOnce")
+            markSetUp()
             return
         }
         if UserDefaults.standard.bool(forKey: "setupDoneOnce") && tries < 15 {
@@ -449,6 +503,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        Watchdog.markCleanExit() // Quit, or Duo Mac.app went away: it stays closed
         core.shutdown()
     }
 
@@ -486,6 +541,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 enum UISnapshot {
     static func render(core: NanoCore, to path: String) {
         core.refreshModel()
+        core.model.port = core.port
         let env = ProcessInfo.processInfo.environment
         let dark = env["NANO_SNAPSHOT_DARK"] == "1"
         if env["NANO_SNAPSHOT_DEMO"] == "1" {
@@ -511,6 +567,20 @@ enum UISnapshot {
             core.model.fps = 58
             core.model.kbps = 640
             core.model.stayReachable = true
+        }
+        // A Mac set up before, with one thing failing now (the status line): port, tailscale, screen or input.
+        if let p = env["NANO_SNAPSHOT_PROBLEM"] {
+            core.model.setUpBefore = true
+            switch p {
+            case "port": core.model.serverError = "Port \(core.port) is unavailable"
+            case "tailscale":
+                core.model.localMode = false
+                core.model.allowConnections = true
+                core.model.tailscale = Tailscale.Status(phase: .ready, dnsName: "your-mac.tail1234.ts.net", login: "you@example.com")
+                core.model.reachTrouble = true
+            case "screen": core.model.screenOK = false
+            default: core.model.inputOK = false
+            }
         }
         let actions = StatusActions(core: core)
         let view: AnyView

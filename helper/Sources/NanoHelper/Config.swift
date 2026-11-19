@@ -14,6 +14,8 @@ struct NanoConfig: Codable {
     var stayReachable: Bool = false
     /// Tailscale built into Duo Mac (BuiltinTailnet.swift) instead of the Tailscale app.
     var builtinTailscale: Bool = false
+    /// Open Duo Mac when you log in (LoginItem.swift), so the iPhone can reach the Mac after a restart.
+    var openAtLogin: Bool = true
 
     init(pairCode: String) { self.pairCode = pairCode }
 
@@ -25,6 +27,7 @@ struct NanoConfig: Codable {
         allowConnections = try c.decodeIfPresent(Bool.self, forKey: .allowConnections) ?? true
         stayReachable = try c.decodeIfPresent(Bool.self, forKey: .stayReachable) ?? false
         builtinTailscale = try c.decodeIfPresent(Bool.self, forKey: .builtinTailscale) ?? false
+        openAtLogin = try c.decodeIfPresent(Bool.self, forKey: .openAtLogin) ?? true
     }
 }
 

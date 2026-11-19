@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 
 /// The iPhone browser the pairing page was opened in. They hide Add to Home Screen in different
@@ -105,6 +106,22 @@ struct InstallGuide: View {
         .onChange(of: browser) { step = 0 }
         .onChange(of: detected) { if let detected { browser = detected } }
         .onAppear { if let detected { browser = detected } }
+    }
+}
+
+/// Under the pairing code: the usual reason the page doesn't open on the iPhone, and which account
+/// to sign in with (`Tailscale.Status.account`; nil before the Mac knows it).
+struct TailscaleHint: View {
+    let account: String?
+
+    var body: some View {
+        // Verbatim: an account name isn't Markdown.
+        Text(verbatim: account.map { "Page won't open on the iPhone? Turn on Tailscale there, signed in as \($0)." }
+                ?? "Page won't open on the iPhone? Turn on Tailscale there, signed in with the same account as this Mac.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .textSelection(.enabled)
     }
 }
 

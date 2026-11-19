@@ -12,7 +12,8 @@ mkdir -p "$STAGE/payload"
 cp "build/.bin/Duo Mac" "$STAGE/payload/Duo Mac"
 rsync -a web/ "$STAGE/payload/web/"
 rsync -a build/DuoMacMicrophone.driver/ "$STAGE/payload/DuoMacMicrophone.driver/"
-DUO_MAC_APP="$PWD/$STAGE/payload/Duo Mac.app" ./tools/make-app.sh >/dev/null
+# No NanoHelperPath in the packaged app: it would be this Mac's build folder (and its owner's name).
+DUO_MAC_APP="$PWD/$STAGE/payload/Duo Mac.app" DUO_MAC_HELPER_PATH= ./tools/make-app.sh >/dev/null
 
 cat > "$STAGE/Install Duo Mac.command" <<'SH'
 #!/bin/bash

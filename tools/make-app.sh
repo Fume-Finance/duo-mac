@@ -5,6 +5,10 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 APP="${DUO_MAC_APP:-/Applications/Duo Mac.app}"
+# Where the launcher looks for the helper when it isn't installed yet: this build folder. A packaged
+# app (make-package.sh) sets DUO_MAC_HELPER_PATH to nothing and leaves it out: it would name the
+# builder's home folder, and the installer puts the helper where the launcher looks first anyway.
+HELPER_PATH="${DUO_MAC_HELPER_PATH-$PWD/build/Duo Mac}"
 echo "▸ Building launcher app…"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
@@ -28,10 +32,12 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>LSUIElement</key><true/>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSLocalNetworkUsageDescription</key><string>Duo Mac lets your iPhone on the same network show and control this Mac.</string>
-  <key>NanoHelperPath</key><string>$PWD/build/Duo Mac</string>
 </dict>
 </plist>
 PLIST
+if [ -n "$HELPER_PATH" ]; then
+  plutil -insert NanoHelperPath -string "$HELPER_PATH" "$APP/Contents/Info.plist"
+fi
 xattr -cr "$APP"
 codesign --force --sign - "$APP"
 echo "✓ Built $APP"
