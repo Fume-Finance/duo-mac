@@ -146,7 +146,7 @@ final class ScreenSource: NSObject, FrameSource, SCStreamOutput, SCStreamDelegat
                 guard let display = found else { throw NanoError.noDisplay }
                 let hidden = ScreenSource.unshared()
                 let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-                let s = SCStream(filter: SCContentFilter(display: display, excludingWindows: content.windows.filter { hidden.contains($0.windowID) }),
+                let s = SCStream(filter: ScreenSource.filter(display, content, hidden),
                                  configuration: ScreenSource.config(want.w, want.h, want.fps), delegate: self)
                 try s.addStreamOutput(self, type: .screen, sampleHandlerQueue: self.sampleQueue)
                 try s.addStreamOutput(self, type: .audio, sampleHandlerQueue: self.audioQueue)
@@ -244,14 +244,35 @@ final class ScreenSource: NSObject, FrameSource, SCStreamOutput, SCStreamDelegat
     /// Windows their app marked as not to be shared (NSWindow.sharingType = .none), e.g. Grammarly's
     /// Superhuman Go strip on the screen's edge: almost invisible on the Mac, but screen capture draws them
     /// as a striped placeholder. Left out of the picture, as on the Mac. Any thread.
-    static func unshared() -> Set<CGWindowID> {
+    static func unshared() -> Set<Unshared> {
         guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else { return [] }
         return Set(list.compactMap { w in
-            (w[kCGWindowSharingState as String] as? Int) == 0 ? (w[kCGWindowNumber as String] as? CGWindowID) : nil
+            guard (w[kCGWindowSharingState as String] as? Int) == 0,
+                  let id = w[kCGWindowNumber as String] as? CGWindowID,
+                  let pid = w[kCGWindowOwnerPID as String] as? pid_t else { return nil }
+            return Unshared(id: id, pid: pid, app: w[kCGWindowOwnerName as String] as? String ?? "?")
         })
     }
 
-    private var hiddenWindows = Set<CGWindowID>()   // control queue
+    struct Unshared: Hashable { let id: CGWindowID; let pid: pid_t; let app: String }
+
+    /// The display without those windows. ScreenCaptureKit doesn't list them, so they can't be left out one by
+    /// one: their apps are left out instead, keeping those apps' ordinary windows in the picture.
+    static func filter(_ display: SCDisplay, _ content: SCShareableContent, _ hidden: Set<Unshared>) -> SCContentFilter {
+        let pids = Set(hidden.map(\.pid))
+        let apps = content.applications.filter { pids.contains($0.processID) }
+        guard !apps.isEmpty else { return SCContentFilter(display: display, excludingWindows: []) }
+        let hiddenIDs = Set(hidden.map(\.id))
+        let keep = content.windows.filter { w in
+            guard let pid = w.owningApplication?.processID else { return false }
+            return pids.contains(pid) && !hiddenIDs.contains(w.windowID)
+        }
+        let names = Set(hidden.map(\.app)).sorted().joined(separator: ", ")
+        Log.info("Leaving out windows not meant to be shared: \(hidden.count) of \(names) (\(keep.count) of their other windows kept)")
+        return SCContentFilter(display: display, excludingApplications: apps, exceptingWindows: keep)
+    }
+
+    private var hiddenWindows = Set<Unshared>()   // control queue
     private var unsharedTimer: DispatchSourceTimer?
 
     /// control queue: every 3 s, if such windows came or went, update the stream's filter.
@@ -268,7 +289,7 @@ final class ScreenSource: NSObject, FrameSource, SCStreamOutput, SCStreamDelegat
             Task {
                 guard let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true),
                       let d = content.displays.first(where: { $0.displayID == display }) else { return }
-                try? await stream.updateContentFilter(SCContentFilter(display: d, excludingWindows: content.windows.filter { now.contains($0.windowID) }))
+                try? await stream.updateContentFilter(ScreenSource.filter(d, content, now))
             }
         }
         t.resume()
