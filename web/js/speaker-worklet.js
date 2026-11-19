@@ -1,10 +1,10 @@
-// Plays the Mac's sound (js/speaker.js): a ring of stereo samples at the Mac's rate (24 kHz),
-// resampled to the phone's on the way out. It waits for ~80 ms before playing, so the network's
+// Plays the Mac's sound (js/speaker.js): a ring of stereo samples at the Mac's rate (24 kHz plain,
+// 48 kHz decoded from Opus), resampled to the phone's on the way out. It waits for ~80 ms before playing, so the network's
 // jitter doesn't chop it, and skips ahead if it falls more than ~350 ms behind.
 class DuoSpeaker extends AudioWorkletProcessor {
   constructor() {
     super();
-    this.N = 24000; // 1 s
+    this.N = 48000; // 1 s at 48 kHz
     this.L = new Float32Array(this.N);
     this.R = new Float32Array(this.N);
     this.w = 0;     // next write
@@ -16,12 +16,14 @@ class DuoSpeaker extends AudioWorkletProcessor {
 
   avail() { return (this.w - Math.floor(this.r) + this.N) % this.N; }
 
-  push({ rate, ch, pcm }) {
+  /** pcm: interleaved 16-bit samples; f32: interleaved floats (decoded Opus). */
+  push({ rate, ch, pcm, f32 }) {
     this.rate = rate;
-    const n = Math.floor(pcm.length / ch);
+    const src = f32 || pcm, k = f32 ? 1 : 1 / 32768;
+    const n = Math.floor(src.length / ch);
     for (let i = 0; i < n; i++) {
-      this.L[this.w] = pcm[i * ch] / 32768;
-      this.R[this.w] = pcm[i * ch + (ch > 1 ? 1 : 0)] / 32768;
+      this.L[this.w] = src[i * ch] * k;
+      this.R[this.w] = src[i * ch + (ch > 1 ? 1 : 0)] * k;
       this.w = (this.w + 1) % this.N;
     }
     if (this.avail() > rate * 0.35) this.r = (this.w - Math.floor(rate * 0.1) + this.N) % this.N;

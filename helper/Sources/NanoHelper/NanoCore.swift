@@ -52,6 +52,10 @@ final class NanoCore {
     private var nanoRemade = false                // net queue: the Duo display was just made again after it couldn't be captured
 
     private(set) var auth: AuthManager!      // net queue
+    /// For the Mac's picture and the local-mode profile: only phones that have unlocked get links with it.
+    private let fileKey = Crypto.randomToken(16)
+    /// Whether this app holds its port (nil until the listener says). main thread
+    private var listenerOK: Bool?
     let tailscale = Tailscale()
     private var tsStatus = Tailscale.Status()   // main thread
     private var tsRefreshing = false
@@ -61,6 +65,8 @@ final class NanoCore {
 
     /// No input for this long ends the session; unlocking again needs passkey.
     static let idleLimit: TimeInterval = 30 * 60
+    /// …unless something plays (sound, a video): then this long without a touch.
+    static let mediaIdleLimit: TimeInterval = 4 * 3600
 
     /// Testing on this Mac (test pattern, or --lan): no Tailscale, plain http.
     var localMode: Bool { options.testPattern || options.lan }
@@ -81,11 +87,11 @@ final class NanoCore {
         installKeymap(keymap)
         source.onFrame = { [weak self] pb in self?.deliver(pb) }
         source.onAudio = { [weak self] sb in
-            guard let self, let d = MacSound.encode(sb) else { return }
+            guard let self else { return }
             self.sinkLock.lock()
             let s = self.sink
             self.sinkLock.unlock()
-            s?.ingest(sound: d)
+            s?.ingest(audio: sb)
         }
         source.onError = { [weak self] err in self?.captureFailed(err, at: Date()) }
         auth = AuthManager(core: self, dir: store.dir)
@@ -97,15 +103,29 @@ final class NanoCore {
         applyBuiltinTailscale()
         server.onWebSocket = { [weak self] ws, headers in self?.attach(ws, headers: headers) }
         server.onState = { [weak self] ok, err in
-            DispatchQueue.main.async { self?.model.serverError = ok ? nil : err }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.model.serverError = ok ? nil : err
+                // Something else holds the port: never publish it as this Mac (Tailscale would forward the
+                // phone to whatever answers there).
+                guard self.listenerOK != ok else { return }
+                self.listenerOK = ok
+                self.applyBuiltinTailscale()
+                self.tsLastRefresh = .distantPast
+                self.refreshTailscale()
+            }
         }
         server.start()
         // Local mode: the same connection straight over the Wi-Fi or hotspot (LocalMode).
         sameNetwork.onWebSocket = { [weak self] ws, headers in self?.attach(ws, headers: headers) }
         if options.testPattern { sameNetwork.origins = ["http://localhost:\(port)"] }
-        server.dynamicFile = { [weak self] path in
+        server.dynamicFile = { [weak self] path, query in
+            guard let self else { return nil }
+            if path == "/build.json" { return (self.server.buildManifest(), "application/json") }
+            // These only for the phone in use: the link (with its key) comes in the config, after unlocking.
+            guard query["k"] == self.fileKey else { return nil }
             if path == "/mac-picture.png" { return MacInfo.picture.map { ($0, "image/png") } }
-            guard path == "/duo-mac-local.mobileconfig", let p = self?.sameNetwork.profile() else { return nil }
+            guard path == "/duo-mac-local.mobileconfig", let p = self.sameNetwork.profile() else { return nil }
             return (p, "application/x-apple-aspen-config")
         }
         sameNetwork.start()
@@ -215,7 +235,7 @@ final class NanoCore {
     func refreshTailscale() {
         guard !localMode, !tsRefreshing else { return }
         tsRefreshing = true
-        tailscale.refresh(port: port, wantServe: config.allowConnections, previous: tsStatus) { [weak self] st in
+        tailscale.refresh(port: port, wantServe: config.allowConnections && listenerOK != false, previous: tsStatus) { [weak self] st in
             guard let self else { return }
             self.tsRefreshing = false
             self.tsLastRefresh = Date()
@@ -350,7 +370,7 @@ final class NanoCore {
 
     /// main thread: start or stop the built-in device to match the settings.
     private func applyBuiltinTailscale() {
-        let want = config.builtinTailscale && config.allowConnections && !localMode && !options.testPattern
+        let want = config.builtinTailscale && config.allowConnections && listenerOK != false && !localMode && !options.testPattern
         if want {
             if builtinTailnet == nil { builtinTailnet = BuiltinTailnet(configDir: store.dir, port: port) }
             builtinTailnet?.start()
@@ -415,6 +435,12 @@ final class NanoCore {
     private func attach(_ ws: WebSocketConnection, headers: [String: String]) {
         let peer = PeerInfo(headers: headers, socketRemote: ws.remote)
         let s = Session(core: self, ws: ws, userAgent: headers["user-agent"] ?? "", peer: peer)
+        // Only a few connections may wait to sign in at once (each holds a buffer): the oldest one goes.
+        let waiting = pending.values.filter { !$0.isAuthed }
+        if waiting.count >= 8, let oldest = waiting.min(by: { $0.createdAt < $1.createdAt }) {
+            oldest.ws.close()
+            detach(oldest)
+        }
         pending[ObjectIdentifier(s)] = s
         ws.onText = { [weak s] text in s?.handle(text: text) }
         ws.onBinary = { [weak s] data in s?.handle(binary: data) }
@@ -422,7 +448,8 @@ final class NanoCore {
             guard let self, let s else { return }
             self.detach(s)
         }
-        s.send(["t": "welcome", "mac": mac.computerName])
+        // build: which version of the web app this Mac serves (the phone's stored copy updates itself if older).
+        s.send(["t": "welcome", "mac": mac.computerName, "build": server.build])
         if let b = PhoneBrowser(userAgent: headers["user-agent"] ?? "") {
             DispatchQueue.main.async { self.model.phoneBrowser = b }
         }
@@ -472,6 +499,10 @@ final class NanoCore {
     /// The phone said hello: it takes control, gets a description of the Mac, and capture starts.
     /// `reshape`: the phone picked a desktop size (or this is the first hello), so the Duo display
     /// may change shape. Rotation and quality changes never reshape it.
+    ///
+    /// Waking the screens and setting up the Duo display take up to seconds on the main thread. That happens on
+    /// the display queue, so this (network) queue keeps handling the phone's input, acks and pings meanwhile;
+    /// before, they waited, and the late acks read as a slow network and cut the quality. net queue
     func startStreaming(for s: Session, reshape: Bool = true) {
         guard s.isAuthed else { return }
         if session !== s {
@@ -502,6 +533,49 @@ final class NanoCore {
                 }
             }
         }
+        requestLock.lock()
+        latestRequest += 1
+        let req = StreamRequest(id: latestRequest, reshape: reshape, nanoOn: s.nanoOn, nanoSize: s.nanoSize,
+                                nanoPts: nanoPoints(for: s), fps: s.streamFPS, unlocked: NanoCore.unlockedForSure())
+        requestLock.unlock()
+        s.nanoWaitingForUnlock = false // tickStats asks again if it still has to wait
+        displayQueue.async { [weak self, weak s] in
+            guard let self, let s else { return }
+            // Superseded by a newer start (the phone turned again): only the newest is carried out.
+            self.requestLock.lock()
+            let newest = self.latestRequest == req.id
+            self.requestLock.unlock()
+            guard newest else { return }
+            let r = self.prepareDisplays(req)
+            self.server.queue.async { self.finishStreaming(for: s, req, r) }
+        }
+    }
+
+    private let displayQueue = DispatchQueue(label: "nano.display", qos: .userInitiated)
+    private let requestLock = NSLock()
+    private var latestRequest = 0   // requestLock
+
+    /// What a start asks for, read on the network queue (the session's fields belong to it).
+    private struct StreamRequest {
+        let id: Int
+        let reshape: Bool
+        let nanoOn: Bool
+        let nanoSize: String
+        let nanoPts: (w: Int, h: Int)
+        let fps: Int
+        let unlocked: Bool        // unlocked for sure (see unlockedForSure)
+    }
+
+    /// What the display work did, for the network queue to finish with.
+    private struct DisplayResult {
+        var lidStalled = false
+        var nanoFailed = false
+        var waitForUnlock = false
+    }
+
+    /// display queue: wake the screens and set up (or take down) the Duo display.
+    private func prepareDisplays(_ req: StreamRequest) -> DisplayResult {
+        var r = DisplayResult()
         // A sleeping screen can't be captured (it shows up as "no display"): wake it, like touching the trackpad.
         if !NanoCore.lidClosed() {
             if NanoCore.wakeDisplays() { NanoCore.lastWake = Date() }
@@ -517,34 +591,27 @@ final class NanoCore {
         // With the lid closed the Duo display is the only screen there is: try it again after 2 minutes
         // (each refused attempt freezes things for 10-20 s and drops the connection).
         let sinceStall = DispatchQueue.main.sync { Date().timeIntervalSince(self.nanoStalledAt) }
-        let lidStalled = NanoCore.lidClosed() && sinceStall < 120
+        r.lidStalled = NanoCore.lidClosed() && sinceStall < 120
         // Lid open: after the Duo display couldn't be captured, the Mac's own screen for a minute and a
         // half, unless the phone asks for a new shape (a layout or size change): then try again now.
-        let stalled = lidStalled || (!NanoCore.lidClosed() && !reshape && sinceStall < 90)
-        if lidStalled {
-            s.send(["t": "notice", "level": "error", "code": "lid-closed",
-                    "msg": "The Mac's lid is closed and macOS has switched its screen off, so it can't show anything. Open the lid for a moment, then tap Try again."])
-            return // nothing to capture, and touching the displays now would only freeze things again
-        }
-        let wantNano = s.nanoOn && permissions().screen && !stalled
-        var nanoPts = nanoPoints(for: s)
-        // Keep the Duo display's shape for the whole session: rotating the phone just letterboxes.
-        // Reshaping a mirrored display mid-session left windows off-screen. Only a new desktop-size
-        // choice reshapes it.
-        if !reshape, let cur = DispatchQueue.main.sync(execute: { self.nano.points }) {
+        let stalled = r.lidStalled || (!NanoCore.lidClosed() && !req.reshape && sinceStall < 90)
+        if r.lidStalled { return r } // nothing to capture, and touching the displays now would only freeze things again
+        let wantNano = req.nanoOn && permissions().screen && !stalled
+        var nanoPts = req.nanoPts
+        // Keep the Duo display's shape unless the phone asked for a new one (a layout, size or orientation).
+        if !req.reshape, let cur = DispatchQueue.main.sync(execute: { self.nano.points }) {
             nanoPts = cur
         }
-        let fps = s.streamFPS
-        if s.nanoOn { Log.info("Duo display request: \(s.nanoSize) → \(nanoPts.w)×\(nanoPts.h) at \(fps) fps\(reshape ? "" : " (shape kept)")") }
+        let fps = req.fps
+        if req.nanoOn { Log.info("Duo display request: \(req.nanoSize) → \(nanoPts.w)×\(nanoPts.h) at \(fps) fps\(req.reshape ? "" : " (shape kept)")") }
         var nanoFailed = false
         // Reconfiguring displays at the lock screen confuses macOS: wait until the Mac is unlocked
         // (the phone's keyboard can type the password); tickStats retries every second. Not with the
         // lid closed: the Mac's own screen is off for good then, so the Duo display is the only place
         // the lock screen can show.
         let lidClosed = NanoCore.lidClosed()
-        let waitForUnlock = wantNano && !options.testPattern && !lidClosed && !NanoCore.unlockedForSure()
+        let waitForUnlock = wantNano && !options.testPattern && !lidClosed && !req.unlocked
         if wantNano && lidClosed && NanoCore.screenIsLocked() { Log.info("Lid closed and Mac locked: the lock screen goes on the Duo display") }
-        s.nanoWaitingForUnlock = waitForUnlock
         DispatchQueue.main.sync {
             self.nanoTeardown?.cancel()
             self.nanoTeardown = nil
@@ -607,24 +674,39 @@ final class NanoCore {
             self.model.nanoInfo = self.source.targetDisplayID == nil ? ""
                 : "Duo display \(nanoPts.w) × \(nanoPts.h) — this Mac's screen mirrors it"
         }
-        if nanoFailed {
+        r.nanoFailed = nanoFailed
+        r.waitForUnlock = waitForUnlock
+        return r
+    }
+
+    /// net queue: tell the phone, and start capturing.
+    private func finishStreaming(for s: Session, _ req: StreamRequest, _ r: DisplayResult) {
+        guard session === s, s.isAuthed else { return }
+        if r.lidStalled {
+            s.send(["t": "notice", "level": "error", "code": "lid-closed",
+                    "msg": "The Mac's lid is closed and macOS has switched its screen off, so it can't show anything. Open the lid for a moment, then tap Try again."])
+            return
+        }
+        s.nanoWaitingForUnlock = r.waitForUnlock
+        if r.nanoFailed {
             s.send(["t": "notice", "level": "info", "code": "nano-unavailable",
                     "msg": "The Duo display couldn't be created on this Mac; showing the Mac's screen instead."])
-        } else if waitForUnlock && NanoCore.screenIsLocked() {
+        } else if r.waitForUnlock && NanoCore.screenIsLocked() {
             s.send(["t": "notice", "level": "info", "code": "nano-locked",
                     "msg": "The Mac is locked: unlock it to switch to the full-size Duo display."])
         }
         let size = streamSize(for: s)
         s.send(configMessage(for: s, size: size))
         setSink(s)
+        s.resetFlow()
         let (screenOK, inputOK) = permissions()
         if !inputOK {
             s.send(["t": "notice", "level": "warn", "code": "input-permission",
-                    "msg": "Keyboard and trackpad are off until you allow Accessibility for Duo Mac on the Mac."])
+                    "msg": "Keyboard and trackpad are off. On the Mac: System Settings › Privacy & Security › Accessibility › turn on Duo Mac."])
         }
         if !screenOK {
             s.send(["t": "notice", "level": "error", "code": "screen-permission",
-                    "msg": "Allow Screen Recording for Duo Mac on the Mac (the window there has an Allow button), then relaunch it."])
+                    "msg": "Screen Recording isn't allowed yet. On the Mac: System Settings › Privacy & Security › Screen & System Audio Recording › turn on Duo Mac, then relaunch it."])
             DispatchQueue.main.async {
                 if !self.askedForScreen {
                     self.askedForScreen = true
@@ -636,7 +718,7 @@ final class NanoCore {
         let startedAt = Date()
         captureStartedAt = startedAt
         let onDuo = DispatchQueue.main.sync { source.targetDisplayID != nil && nano.isActive }
-        source.start(width: size.w, height: size.h, fps: options.testPattern ? 30 : fps) { [weak self, weak s] err in
+        source.start(width: size.w, height: size.h, fps: options.testPattern ? 30 : s.streamFPS) { [weak self, weak s] err in
             guard let self, let s else { return }
             guard let err else {
                 if onDuo { self.server.queue.async { self.nanoRemade = false } }
@@ -769,7 +851,13 @@ final class NanoCore {
         return (d["CGSSessionScreenIsLocked"] as? Bool) ?? false || (d["kCGSSessionOnConsoleKey"] as? Bool) == false
     }
 
-    static var lastWake = Date.distantPast
+    /// When the screens were last woken (display queue writes it, the network queue reads it).
+    static var lastWake: Date {
+        get { wakeLock.lock(); defer { wakeLock.unlock() }; return _lastWake }
+        set { wakeLock.lock(); _lastWake = newValue; wakeLock.unlock() }
+    }
+    private static var _lastWake = Date.distantPast
+    private static let wakeLock = NSLock()
     private static var unlockedSince: Date?
 
     /// Unlocked, screen on, and steadily so for 2 s: right after the screen wakes the session can briefly
@@ -802,9 +890,10 @@ final class NanoCore {
         return (Int(width) & ~1, Int(h.rounded()) & ~1)
     }
 
-    /// After the phone leaves, keep the Duo display a minute (folding and unfolding shouldn't
-    /// reshuffle the Mac's screen), then put everything back. main thread
-    private func scheduleNanoTeardown() {
+    /// After the phone leaves, keep the Duo display for 10 minutes (folding, a call, walking about: most come back
+    /// within that, and then it's there at once instead of being made again), then put everything back. Sooner if
+    /// someone uses the Mac itself meanwhile: its normal screen comes back at the first touch. main thread
+    private func scheduleNanoTeardown(after delay: TimeInterval = 600) {
         nanoTeardown?.cancel()
         guard nano.isActive || source.targetDisplayID != nil else { return }
         let item = DispatchWorkItem { [weak self] in
@@ -818,7 +907,7 @@ final class NanoCore {
                 self.nanoTeardown = nil
                 DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
                     guard let self, self.nanoTeardown == nil, !self.model.connected else { return }
-                    self.scheduleNanoTeardown()
+                    self.scheduleNanoTeardown(after: 0)
                 }
                 return
             }
@@ -833,7 +922,25 @@ final class NanoCore {
             }
         }
         nanoTeardown = item
-        DispatchQueue.main.asyncAfter(deadline: .now() + 60, execute: item)
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: item)
+        watchLocalUse(since: Date(), item: item)
+    }
+
+    /// main thread: every 2 s while the Duo display waits for the phone, look for keyboard, mouse or trackpad
+    /// input at the Mac itself (nothing comes from the phone meanwhile).
+    private func watchLocalUse(since left: Date, item: DispatchWorkItem) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+            guard let self, self.nanoTeardown === item, !item.isCancelled, !self.model.connected else { return }
+            let idle = CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: CGEventType(rawValue: ~0)!)
+            if idle < Date().timeIntervalSince(left) - 1.5 {
+                Log.info("Someone is using the Mac: putting its own screen back")
+                item.cancel()
+                self.nanoTeardown = nil
+                item.perform()
+                return
+            }
+            self.watchLocalUse(since: left, item: item)
+        }
     }
 
     /// The phone ended the session: hang up and put the Mac's screen back immediately.
@@ -894,7 +1001,7 @@ final class NanoCore {
         Log.warn("Screen capture failed: \(ns.domain) \(ns.code) \(ns.localizedDescription)")
         let msg: String
         if ns.domain == "com.apple.ScreenCaptureKit.SCStreamErrorDomain" && ns.code == -3801 {
-            msg = "Screen Recording isn't allowed yet. On the Mac: System Settings → Privacy & Security → Screen & System Audio Recording → turn on Duo Mac, then relaunch it."
+            msg = "Screen Recording isn't allowed yet. On the Mac: System Settings › Privacy & Security › Screen & System Audio Recording › turn on Duo Mac, then relaunch it."
         } else {
             msg = "The Mac couldn't capture its screen: \(ns.localizedDescription)"
         }
@@ -929,22 +1036,25 @@ final class NanoCore {
 
     /// Stream resolution: the phone's screen area, but never below the Mac's own point
     /// resolution in "balanced" (so pinch-zoom stays sharp), capped by a pixel budget per quality.
+    /// On the Duo display: its own pixels, as macOS draws them (no second resizing), up to 3.8 million, which
+    /// this Mac's encoder handles 85 times a second. At 120 frames a second (Smooth): at most 2 million, which it
+    /// encodes in 8 ms, so all 120 get out (at 2.8 million it managed about 85); Sharp keeps the full picture.
     private func streamSize(for s: Session) -> (w: Int, h: Int) {
         let info = source.info
         let ptW = max(info.bounds.width, 320), ptH = max(info.bounds.height, 200)
         let aspect = ptW / ptH
         let fitW = min(s.box.width, s.box.height * aspect)
+        let onDuo = source.targetDisplayID != nil
         var w: Double
         switch s.quality {
         case .fast: w = min(fitW, ptW)
-        case .balanced: w = min(max(fitW, ptW), Double(info.pixelSize.width))
+        case .balanced: w = onDuo ? Double(info.pixelSize.width) : min(max(fitW, ptW), Double(info.pixelSize.width))
         case .sharp: w = Double(info.pixelSize.width)
         }
         var h = w / aspect
         var budget = s.quality.maxPixels
-        if source.targetDisplayID != nil && s.quality != .fast {
-            budget = max(budget, min(Double(s.box.width * s.box.height), 2_800_000))
-        }
+        if onDuo && s.quality != .fast { budget = max(budget, 3_800_000) }
+        if s.streamFPS >= 120 && s.quality != .sharp { budget = min(budget, 2_000_000) }
         if w * h > budget {
             let k = (budget / (w * h)).squareRoot()
             w *= k
@@ -998,6 +1108,7 @@ final class NanoCore {
             "perms": ["screen": screenOK, "input": inputOK],
             "mic": ["installed": Microphone.isInstalled, "update": Microphone.needsUpdate],
             "local": sameNetwork.info ?? [:],
+            "files": ["picture": "/mac-picture.png?k=\(fileKey)", "profile": "/duo-mac-local.mobileconfig?k=\(fileKey)"],
             "route": s.peer.local ? "local" : s.peer.viaTailscale ? "tailscale" : "direct",
             "app": frontApp,
             // What each Desktop size would be at this shape (Settings shows it under each choice).
@@ -1106,13 +1217,15 @@ final class NanoCore {
             // Silent ones, and ones that haven't unlocked after 5 minutes (pairing takes 2 at most):
             // a stranger can't keep a connection open just by pinging.
             for p in self.pending.values where Date().timeIntervalSince(p.lastMessageAt) > 10
-                || (!p.isAuthed && Date().timeIntervalSince(p.createdAt) > 300) {
+                || (!p.isAuthed && Date().timeIntervalSince(p.createdAt) > p.signInWindow) {
                 p.ws.close()
                 self.detach(p)
             }
             guard let s = self.session else { return }
             if let id = s.deviceID { self.auth.keepTicketsFresh(for: id) }
-            if Date().timeIntervalSince(s.lastInputAt) > NanoCore.idleLimit {
+            let sinceTouch = Date().timeIntervalSince(s.lastInputAt)
+            let playing = Date().timeIntervalSince(s.lastMediaAt) < 60
+            if sinceTouch > NanoCore.idleLimit && !(playing && sinceTouch < NanoCore.mediaIdleLimit) {
                 self.auth.log.add("\(s.clientName) disconnected after \(Int(NanoCore.idleLimit / 60)) minutes without use")
                 if let id = s.deviceID { self.auth.revokeTickets(id) }
                 s.send(["t": "notice", "level": "info", "code": "idle",

@@ -1,5 +1,5 @@
 // Duo Mac — wires the screen, keyboard and trackpad to the Mac.
-import { settings, setSetting, onSetting, freshInstall, DEFAULTS, upgrade } from './settings.js';
+import { settings, setSetting, onSetting, freshInstall, DEFAULTS, upgrade, resetSettings } from './settings.js';
 import { Link } from './net.js';
 import { loadDevice, saveDevice, forgetDevice, deviceName, passkeysAvailable, createPasskey, getAssertion } from './auth.js';
 import { Screen, LidTouch } from './screen.js';
@@ -14,7 +14,7 @@ import { Dictation } from './dictation.js';
 import { PairView } from './pairview.js';
 import { showInstall, hideInstall, browserName } from './install.js';
 import { Mic } from './mic.js';
-import { Speaker } from './speaker.js';
+import { Speaker, opusSupported } from './speaker.js';
 import { MacCursor } from './cursor.js';
 
 const $ = (s) => document.querySelector(s);
@@ -28,7 +28,14 @@ const params = new URLSearchParams(location.search);
 // ───── Pairing and unlocking (see auth.js and the Mac's Auth.swift) ─────
 let device = loadDevice();   // this iPhone's key for the Mac, once paired
 let pairCode = (params.get('pair') || '').replace(/[^0-9a-z]/gi, '').toUpperCase();
-let ticket = '';             // from the last unlock: reconnecting soon after skips passkey
+// From the last unlock: reconnecting soon after skips the passkey. Kept for this tab, so a reload (the page
+// updating itself, see sw.js) doesn't ask for it again.
+let ticket = '';
+try { ticket = sessionStorage.getItem('duo.ticket') || ''; } catch {}
+function setTicket(t) {
+  ticket = t || '';
+  try { if (ticket) sessionStorage.setItem('duo.ticket', ticket); else sessionStorage.removeItem('duo.ticket'); } catch {}
+}
 let authed = false;          // unlocked: may say hello and control the Mac
 let tailnet = null;          // the iPhone app's own Tailscale: { state, enabled }
 const LOCAL_OK_KEY = 'nano.localOK.v1';
@@ -77,6 +84,13 @@ const screen = new Screen({ area: $('#screen-area'), wrap: $('#screen-wrap'), ca
 const macCursor = new MacCursor(screen, $('#mac-cursor'));
 screen.pointerDrawn = true;
 screen.onLayout = () => macCursor.render();
+// Zoomed in (pinch on the screen): a chip says how much, and a tap on it shows the whole screen again.
+const zoomChip = $('#zoom-chip');
+screen.onZoom = (s) => {
+  zoomChip.hidden = s <= 1.01;
+  if (!zoomChip.hidden) zoomChip.textContent = `${s.toFixed(1)}× · Reset`;
+};
+zoomChip.addEventListener('click', () => screen.resetZoom());
 // All screen: the ⌨︎ and ⚙︎ buttons sit over the Mac's bottom-right corner (a chat's send or
 // microphone button, the Dock). They step aside while the Mac's pointer is near them.
 const toolsEl = $('#tools');
@@ -153,6 +167,7 @@ const pointer = {
 let feedbackLogs = 0;
 const keyboard = new Keyboard($('#keyboard'), $('#keypop'), {
   onKey(code, down, mod, repeat) {
+    if (typeIntoAuthField(code, down)) return;
     const m = { t: 'k', c: code, d: down ? 1 : 0, mod };
     if (repeat) m.r = 1;
     sendNow(m);
@@ -403,11 +418,11 @@ const sheet = new Sheet($('#sheet'), {
   iosKeyboard: () => { sheet.close(); openIOSKeyboard(); },
   resetZoom: () => screen.resetZoom(),
   refresh: () => link.send({ t: 'refresh' }),
-  reconnect: () => { fatal = null; link.reconnectNow(); },
+  reconnect: () => { fatal = null; showBanner('Connecting…', 'info', 2500); link.reconnectNow(); },
   // Local mode's one-time setup: the profile that makes this iPhone trust the Mac on the local
   // network. iOS installs profiles from Safari only (not from a Home Screen app).
   localSetup: () => {
-    const url = `https://${location.host}/duo-mac-local.mobileconfig`;
+    const url = `https://${location.host}${cfg?.files?.profile || '/duo-mac-local.mobileconfig'}`;
     if (navigator.standalone) location.href = `x-safari-${url}`;
     else location.href = url;
   },
@@ -418,9 +433,18 @@ const sheet = new Sheet($('#sheet'), {
     native?.call({ t: 'mac-remove', mac }).then(refreshMacs).catch(() => {});
   },
   macScan: () => native?.call({ t: 'scan-qr' }).then((text) => text && native.call({ t: 'mac-open', mac: text }))
-    .catch((e) => showBanner(e?.message || 'Couldn’t add that Mac', 'error', 3000)),
+    .catch((e) => showBanner(/NotAllowed/.test(e?.message || e) ? 'Allow the camera for Duo Mac in the iPhone’s Settings.'
+      : e?.message || 'Couldn’t add that Mac', 'error', 4000)),
+  whisperDownload: (cellular = false) => refreshWhisper({ download: true, cellular }),
+  whisperCellular: () => refreshWhisper({ download: true, cellular: true }),
+  splitAuto: () => { setSetting({ trackpad: 'hingePad', keyboard: 'hingeKb' }[settings.layout] || 'hinge', null); sheet.update(sheetInfo()); },
+  resetAll: () => {
+    if (!confirm('Put every setting on this iPhone back to how it came? The pairing with your Mac stays.')) return;
+    resetSettings();
+    location.reload();
+  },
   macType: () => {
-    const n = prompt('The Mac’s name on your tailnet, as the Tailscale app lists it (e.g. fabios-imac):');
+    const n = prompt('The Mac’s name, as the Tailscale app lists it (e.g. fabios-imac):');
     if (n) native?.call({ t: 'mac-open', mac: n }).catch((e) => showBanner(e?.message || 'Couldn’t open that Mac', 'error', 3000));
   },
   tailnetLogin: () => native?.call({ t: 'tailnet-login' }).catch(() => {}),
@@ -443,8 +467,9 @@ const sheet = new Sheet($('#sheet'), {
     trackpad.reset();
     link.send({ t: 'rel' });
     link.send({ t: 'lock' }); // the Mac forgets the unlock and hangs up; reconnecting asks for passkey
-    ticket = '';
+    setTicket('');
     authed = false;
+    updateAwake();
     showAuth('Locked', '');
   },
   changePin: () => { sheet.close(); askPin('change'); },
@@ -656,6 +681,7 @@ function closeLid() {
   screenPad.reset();
   link.send({ t: 'rel' });
   if (link.open) link.close();
+  updateAwake();
 }
 function openLid() {
   if (!lidClosed) return;
@@ -781,7 +807,7 @@ onSetting((k, v) => {
     link.send({ t: 'clip-sync', on: clipSync() });
     native?.call({ t: 'clip-watch', on: clipSync() }).catch(() => {});
   }
-  if (k === 'macSound') { link.send({ t: 'sound', on: !!v }); if (!v) speaker.stop(); }
+  if (k === 'macSound') { link.send({ t: 'sound', on: !!v, codec: soundCodec() }); if (!v) speaker.stop(); }
   if (k === 'stats') statsEl.hidden = !v;
   if (k === 'fnStandard') keyboard.renderFnRow();
   if (k === 'toolButtons') { renderToolKeys(); layout(); }
@@ -839,9 +865,29 @@ function showAuth(msg, sub = '', { field = null, buttons = [], match = '' } = {}
     el.type = 'button';
     el.className = b.primary ? 'act primary' : 'act';
     el.textContent = b.label;
+    el.disabled = !!b.disabled;
     el.addEventListener('click', b.onClick);
     return el;
   }));
+  // Straight into the field (from a tap, iOS shows its keyboard; the drawn one types into it too).
+  if (field) authField.focus({ preventScroll: true });
+}
+
+/** The drawn keyboard while a PIN is asked for: its digits, delete and return go into the field, nothing
+ *  to the Mac. (Mac key codes 0–9.) */
+const DIGIT_KEYS = { 0x1D: '0', 0x12: '1', 0x13: '2', 0x14: '3', 0x15: '4', 0x17: '5', 0x16: '6', 0x1A: '7', 0x1C: '8', 0x19: '9' };
+function typeIntoAuthField(code, down) {
+  if (authForm.hidden || overlay.className !== 'auth') return false;
+  if (!down) return true;
+  if (DIGIT_KEYS[code] && authField.value.length < (authField.maxLength > 0 ? authField.maxLength : 12)) {
+    authField.value += DIGIT_KEYS[code];
+    authField.dispatchEvent(new Event('input'));
+  } else if (code === 0x33) {
+    authField.value = authField.value.slice(0, -1);
+  } else if (code === 0x24) {
+    authForm.requestSubmit();
+  }
+  return true;
 }
 
 authForm.addEventListener('submit', (e) => {
@@ -858,15 +904,19 @@ authField.addEventListener('input', () => {
   }
 });
 
+// Two kinds of message: one that stays until it's dealt with (Accessibility is off, "Reconnecting…"), in its
+// own row, and short ones (ms) that go by themselves, below it, without wiping it.
 let bannerTimer = 0;
+const alertEl = $('#alert');
 function showBanner(text, level = 'info', ms = 0) {
-  clearTimeout(bannerTimer);
-  banner.textContent = text;
-  banner.className = level;
-  banner.hidden = false;
+  const el = ms ? banner : alertEl;
+  if (ms) clearTimeout(bannerTimer);
+  el.textContent = text;
+  el.className = level;
+  el.hidden = false;
   if (ms) bannerTimer = setTimeout(() => { banner.hidden = true; }, ms);
 }
-function hideBanner() { banner.hidden = true; }
+function hideBanner() { alertEl.hidden = true; }
 
 overlay.querySelector('.retry').addEventListener('click', () => {
   fatal = null;
@@ -1106,7 +1156,7 @@ function showFaceIDSetup(note = '') {
         p.then((r) => link.send({ t: 'passkey-register', ...r }))
           .catch((e) => {
             console.warn('passkey setup failed:', e?.name, e?.message);
-            showFaceIDSetup(e?.name === 'NotAllowedError' ? 'Cancelled. Try again, or use a PIN instead.' : `That didn’t work (${e?.name || 'error'}).`);
+            showFaceIDSetup(e?.name === 'NotAllowedError' ? 'Canceled. Try again, or use a PIN instead.' : `That didn’t work (${e?.name || 'error'}).`);
           });
       } },
       { label: 'Use a PIN instead', onClick: () => askPin('required') },
@@ -1166,22 +1216,33 @@ function showUnlock(note = unlockNote) {
   if (!n) return;
   const face = n.passkey && canPasskey;
   // The iPhone app needs no tap before Face ID: ask straight away (once: after a cancel, the buttons).
-  if (native && face && !autoFaceDone && !note) {
+  if (native && face && !autoFaceDone && !note && !document.hidden) {
     autoFaceDone = true;
     return faceIdUnlock();
   }
   const buttons = [];
   if (face) buttons.push({ label: 'Unlock with Passkey', primary: true, onClick: faceIdUnlock });
-  if (n.pin) buttons.push({ label: face ? 'Use PIN' : 'Enter PIN', primary: !face, onClick: () => askUnlockPin() });
+  // A paused PIN can't be tried: the button says for how long, and comes back by itself.
+  const paused = n.pin && n.pinWait > 0;
+  clearTimeout(pinTimer);
+  if (paused) {
+    pinTimer = setTimeout(() => {
+      if (need !== n || overlay.className !== 'auth') return;
+      n.pinWait = Math.max(0, n.pinWait - 30);
+      showUnlock(unlockNote || ' ');
+    }, 30000);
+  }
+  if (n.pin) buttons.push({ label: paused ? `PIN paused · ${fmtWait(n.pinWait)}` : face ? 'Use PIN' : 'Enter PIN', primary: !face && !paused, disabled: paused, onClick: () => askUnlockPin() });
   if (!buttons.length) {
     showAuth('Can’t unlock here', 'This iPhone’s passkey was set up for another address of the Mac, and it has no PIN. Pair it again.', {
       buttons: [{ label: 'Pair Again', primary: true, onClick: () => { unpairLocally(); showPairing(); } }],
     });
     return;
   }
-  if (n.pin && n.pinWait > 0 && !note) note = `PIN paused for ${fmtWait(n.pinWait)} after wrong tries.`;
-  showAuth(`Unlock ${macName()}`, note, { buttons });
+  if (paused && !note.trim()) note = face ? 'Too many wrong PINs. Use your passkey, or wait.' : 'Too many wrong PINs. Try again when the pause is over.';
+  showAuth(`Unlock ${macName()}`, note.trim(), { buttons });
 }
+let pinTimer = 0;
 
 function faceIdUnlock() {
   const p = getAssertion({ challenge: need.challenge, rpId: need.rpId, cred: need.cred }); // straight from the tap
@@ -1230,7 +1291,7 @@ function authFailed(m) {
 
 function connectionsOff() {
   showAuth('Connections are off', `Turn on “Allow iPhone connections” in Duo Mac on ${macName()}.`, {
-    buttons: [{ label: 'Try Again', primary: true, onClick: () => { showAuth('Connecting…'); link.reconnectNow(); } }],
+    buttons: [{ label: 'Try again', primary: true, onClick: () => { showAuth('Connecting…'); link.reconnectNow(); } }],
   });
 }
 
@@ -1274,7 +1335,8 @@ function onAuthed(m) {
   backUpPrefs();
   need = null;
   pairing = null;
-  ticket = m.ticket || '';
+  setTicket(m.ticket);
+  updateAwake();
   if (device && m.device) {
     Object.assign(device, { name: m.device.name, passkey: m.device.passkey, pin: m.device.pin, mac: macLabel });
     saveDevice(device);
@@ -1302,6 +1364,23 @@ function onAuthed(m) {
 
 // ───── Connection ─────
 let helloTimer = 0;
+let stuckTimer = 0;
+
+/** Keep this iPhone's screen on while it shows the Mac (unlocked, connected, open, in front); otherwise it
+ *  locks by itself as usual: at the unlock screen, folded shut, or when another device took over. */
+let awakeOn = false, wakeLock = null, pairWaiting = false;
+function updateAwake() {
+  // (Also while the Mac is asked to Allow a pairing: you walk over to it.)
+  const on = !!link?.open && (authed || pairWaiting) && !lidClosed && !document.hidden;
+  if (on === awakeOn) return;
+  awakeOn = on;
+  native?.call({ t: 'awake', on }).catch(() => {});
+  // In Safari (no app): the Screen Wake Lock API, where there is one.
+  if (!native && navigator.wakeLock) {
+    if (on) navigator.wakeLock.request('screen').then((l) => { wakeLock = l; }).catch(() => {});
+    else { wakeLock?.release().catch(() => {}); wakeLock = null; }
+  }
+}
 let lastProbe = '';
 link = new Link({
   onState(state, code) {
@@ -1317,29 +1396,30 @@ link = new Link({
       if (sheet.isOpen) sheet.update(sheetInfo());
       failures = 0;
       everConnected = true;
+      clearTimeout(stuckTimer);
       hideBanner();
-      native?.call({ t: 'awake', on: true }).catch(() => {});
       warnExpiry();
       return;
     }
     if (state === 'kicked') {
       authed = false;
+      updateAwake();
       fatal = 'kicked';
       setOverlay('error', 'Connected somewhere else', `${macName()} is now being used from another tab or device.`, 'Use here');
       return;
     }
     if (state === 'closed') {
       failures++;
-      native?.call({ t: 'awake', on: false }).catch(() => {});
       native?.call({ t: 'clip-watch', on: false }).catch(() => {});
       findMacNearby();
       authed = false;
+      updateAwake();
       keyboard.releaseAll();
       trackpad.reset();
       lidTouch.reset();
       screenPad.reset();
       if (code === 4002) {
-        ticket = '';
+        setTicket('');
         showAuth('Disconnected', 'After 30 minutes without use. Unlock again to carry on.', {
           buttons: [{ label: 'Reconnect', primary: true, onClick: () => { showAuth('Connecting…'); link.reconnectNow(); } }],
         });
@@ -1352,8 +1432,17 @@ link = new Link({
       }
       if (code === 4004) return connectionsOff();
       if (fatal) return;
-      if (screen.gotFrame && overlay.className === 'hidden') showBanner('Reconnecting…');
-      else setOverlay('booting', 'Looking for your Mac…', failures > 2 ? 'Is Duo Mac open on the Mac, and Tailscale on on this iPhone?' : '');
+      if (screen.gotFrame && overlay.className === 'hidden') {
+        showBanner('Reconnecting…');
+        // Still nothing after a while (the Mac went to sleep, lost its network, or Duo Mac quit): say so, instead
+        // of a frozen picture. Retrying carries on underneath; the picture comes back by itself.
+        clearTimeout(stuckTimer);
+        stuckTimer = setTimeout(() => {
+          if (link.open || fatal || lidClosed || document.hidden) return;
+          hideBanner();
+          setOverlay('error', `Can’t reach ${macName()}`, 'Is it awake, with Duo Mac running? Away from its network, is Tailscale connected?', 'Try again');
+        }, 8000);
+      } else setOverlay('booting', 'Looking for your Mac…', failures > 2 ? 'Is Duo Mac open on the Mac, and is Tailscale connected on this iPhone?' : '');
     }
   },
   /** Moving a Tailscale session to the local route signs in with the reconnect ticket. */
@@ -1376,6 +1465,7 @@ link = new Link({
         break;
       case 'welcome':
         macLabel = m.mac || '';
+        if (checkVersion(m.build)) break; // a newer page: it reloads in a moment
         passkeyReady.then(startAuth);
         break;
       case 'auth-need':
@@ -1389,12 +1479,17 @@ link = new Link({
         onAuthed(m);
         break;
       case 'pair-wait':
+        pairWaiting = true;
+        updateAwake();
         showAuth('Check your Mac', `Click Allow in the Duo Mac window on ${macName()}. It shows the same code:`, { match: m.match });
         break;
       case 'pair-fail':
+        pairWaiting = false;
+        updateAwake();
         pairFailed(m.reason);
         break;
       case 'pair-approved':
+        pairWaiting = false;
         pairing = { passkey: false };
         setUpUnlock();
         break;
@@ -1523,7 +1618,7 @@ function nanoRequest() {
 
 function sendHello() {
   lastBox = screen.boxPixels();
-  link.send({ t: 'hello', v: 1, box: lastBox, q: settings.quality, standalone: !!navigator.standalone, nano: nanoRequest(), sound: !!settings.macSound, codec: codec(), fps: maxFPS(), clip: clipSync() });
+  link.send({ t: 'hello', v: 1, box: lastBox, q: settings.quality, standalone: !!navigator.standalone, nano: nanoRequest(), sound: !!settings.macSound, soundCodec: soundCodec(), codec: codec(), hevc: hevc(), fps: maxFPS(), clip: clipSync() });
   native?.call({ t: 'clip-watch', on: clipSync() }).catch(() => {});
   if (settings.mic) link.send({ t: 'mic', on: true });
 }
@@ -1531,11 +1626,33 @@ function sendHello() {
 // ───── H.264 video: much less data than JPEG tiles when a lot changes (if the phone can decode it) ─────
 let videoOK = false;
 const codec = () => ((videoOK || native?.video) && settings.video ? 'h264' : 'jpeg');
+/** The iPhone app decodes HEVC in hardware: a third less data than H.264 for the same picture. */
+const hevc = () => !!native?.video && !!native?.hevc && settings.video;
+/** The Mac's sound as Opus (an eighth of the data) when this phone decodes it. */
+let opusOK = false;
+const soundCodec = () => (opusOK ? 'opus' : 'pcm');
+opusSupported.then((ok) => {
+  opusOK = ok;
+  remoteLog('info', [`sound: Opus decoding ${ok ? 'available' : 'not available'}`]);
+  if (ok && link.open && authed && settings.macSound) link.send({ t: 'sound', on: true, codec: soundCodec() });
+});
 /** Frames a second to ask for: 120 in the iPhone app on a ProMotion screen (it shows video natively). */
 /** Shared clipboard: only the iPhone app can read and set the iPhone's clipboard by itself. */
 const clipSync = () => !!native && !!settings.clipSync;
-window.duoClipboard = (m) => { if (link.open && authed) link.send({ t: 'clip', ...m }); };
-const maxFPS = () => (native?.video && settings.smooth && settings.video ? Math.min(120, native.maxFPS || 60) : 60);
+// The iPhone app hands over what was copied in another app; true only if it went to the Mac (else the app
+// keeps it and tries again once connected).
+window.duoClipboard = (m) => {
+  if (!link.open || !authed) return false;
+  link.send({ t: 'clip', ...m });
+  return true;
+};
+// The iPhone app's frame rate: 60 in Low Power Mode or when it's hot, else the screen's (120 on ProMotion).
+let appFPS = native?.maxFPS || 60;
+window.duoFPS = (n) => {
+  appFPS = n || 60;
+  if (link.open && authed) link.send({ t: 'fps', fps: maxFPS() });
+};
+const maxFPS = () => (native?.video && settings.smooth && settings.video ? Math.min(120, appFPS) : 60);
 Screen.videoSupported().then((ok) => {
   videoOK = ok;
   remoteLog('info', [`video: H.264 decoding ${ok ? 'available' : 'not available'}`]);
@@ -1754,6 +1871,7 @@ const HW = {
 const hwMods = (e) => (e.shiftKey ? MOD.shift : 0) | (e.ctrlKey ? MOD.control : 0) | (e.altKey ? MOD.option : 0) | (e.metaKey ? MOD.command : 0);
 for (const type of ['keydown', 'keyup']) {
   window.addEventListener(type, (e) => {
+    if (sheet.isOpen && type === 'keydown' && e.key === 'Escape') { e.preventDefault(); sheet.close(); return; }
     if (document.activeElement === iosInput || document.activeElement === authField || sheet.isOpen || !link.open || !authed) return;
     const code = HW[e.code];
     if (code === undefined) return;
@@ -1789,6 +1907,7 @@ document.addEventListener('visibilitychange', () => {
     screenPad.reset();
     link.send({ t: 'rel' });
     if (link.open && authed) link.close();
+    updateAwake();
   } else {
     autoFaceDone = false; // back in the app: Face ID asks by itself again
     // The phone may have been turned or folded meanwhile: lay out again.
@@ -1879,7 +1998,7 @@ async function tellAppAboutMac(mac) {
   toldApp = true;
   let picture;
   try {
-    const r = await fetch('/mac-picture.png', { cache: 'no-store' });
+    const r = await fetch(cfg?.files?.picture || '/mac-picture.png', { cache: 'no-store' });
     if (r.ok) {
       const blob = await r.blob();
       picture = await new Promise((ok) => { const f = new FileReader(); f.onload = () => ok(f.result); f.onerror = () => ok(undefined); f.readAsDataURL(blob); });
@@ -1894,22 +2013,20 @@ function refreshMacs() {
   native?.call({ t: 'macs' }).then((m) => { macsInfo = m; if (sheet.isOpen) sheet.update(sheetInfo()); }).catch(() => {});
 }
 
-/** Whisper dictation (the iPhone app): get its model ready when chosen, and follow the download
- *  while Settings is open. */
+/** Whisper dictation (the iPhone app): how its model is doing (downloaded only when you tap Download in
+ *  Settings, on Wi-Fi unless you say otherwise), followed while Settings is open. */
 let whisperStatus = null, whisperTimer = 0;
-function refreshWhisper() {
+function refreshWhisper(extra = {}) {
   if (!native) return;
   clearTimeout(whisperTimer);
-  const prepare = settings.dictationEngine === 'whisper';
-  native.call({ t: 'whisper', prepare, engine: settings.dictationEngine }).then((st) => {
+  native.call({ t: 'whisper', engine: settings.dictationEngine, ...extra }).then((st) => {
     whisperStatus = st;
     if (sheet.isOpen) {
       sheet.update(sheetInfo());
-      if (st?.state === 'downloading' || st?.state === 'loading') whisperTimer = setTimeout(refreshWhisper, 1000);
+      if (['downloading', 'loading', 'wifi'].includes(st?.state)) whisperTimer = setTimeout(refreshWhisper, 1000);
     }
   }).catch(() => {});
 }
-refreshWhisper();
 
 /** The app's own Tailscale (Settings › Connection): its state, as the app reports it. */
 window.duoTailnet = (t) => {
@@ -1931,6 +2048,31 @@ function warnExpiry() {
     const when = left < 86400e3 ? 'within a day' : 'in 2 days';
     showBanner(`This copy of the Duo Mac app stops opening ${when}. Keep the iPhone on the Mac’s Wi-Fi (or plug it in) so the Mac can renew it.`, 'error', 12000);
   }).catch(() => {});
+}
+
+// ───── Updates: the Mac serves a newer web app than this copy ─────
+// The page is kept on the phone (sw.js) and opens from there at once, even before the network is up. The Mac
+// says which version it serves (welcome); if it's newer, the stored copy is replaced and the page reloads, once.
+const PAGE_BUILD = document.querySelector('meta[name="duo-build"]')?.content || '';
+/** The Mac serves `build`: keep the stored copy at it (in the background), and if this page is older,
+ *  reload into the new one. True while reloading. */
+function checkVersion(build) {
+  const sw = navigator.serviceWorker?.controller;
+  let stale = !!build && !!PAGE_BUILD && !PAGE_BUILD.startsWith('__') && build !== PAGE_BUILD;
+  let tried = '';
+  try { tried = sessionStorage.getItem('duo.updatedTo') || ''; } catch {}
+  if (tried === build) stale = false; // reloaded for it already: carry on rather than go round in circles
+  if (stale) {
+    try { sessionStorage.setItem('duo.updatedTo', build); } catch {}
+    remoteLog('info', [`update: page ${PAGE_BUILD} → ${build}`]);
+    setOverlay('booting', 'Updating Duo Mac…');
+    const reload = () => location.reload();
+    if (!sw) { reload(); return true; }
+    navigator.serviceWorker.addEventListener('message', (e) => { if (e.data?.t === 'updated' || e.data?.t === 'update-failed') reload(); });
+    setTimeout(reload, 8000); // the stored copy couldn't be refreshed: the network has the new page anyway
+  }
+  sw?.postMessage({ t: 'update', build });
+  return stale;
 }
 
 // ───── Start ─────

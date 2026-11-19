@@ -1,4 +1,5 @@
 import Foundation
+import CoreMedia
 import CoreVideo
 import CoreGraphics
 
@@ -76,13 +77,40 @@ final class Session {
         set { soundLock.lock(); _macSound = newValue; soundLock.unlock() }
     }
     private var _macSound = false
+    /// The phone decodes Opus (WebCodecs): the sound goes out as Opus, an eighth of the plain samples.
+    private var soundOpus: Bool {
+        get { soundLock.lock(); defer { soundLock.unlock() }; return _soundOpus }
+        set { soundLock.lock(); _soundOpus = newValue; soundLock.unlock() }
+    }
+    private var _soundOpus = false
     private let soundLock = NSLock()
+    private var opus: OpusEncoder?          // capture (audio) queue
 
-    /// A chunk of the Mac's sound (MacSound), straight to the phone. Capture queue.
-    func ingest(sound d: Data) {
-        guard macSound, isAuthed else { return }
+    /// The Mac's sound (ScreenCaptureKit, 48 kHz), to the phone: Opus when it can decode that, else
+    /// plain 24 kHz samples (MacSound). Silence isn't sent. Audio capture queue.
+    func ingest(audio sb: CMSampleBuffer) {
+        guard macSound, isAuthed else { opus = nil; return }
+        if soundOpus {
+            if opus == nil { opus = OpusEncoder() }
+            if let o = opus {
+                let packets = o.encode(sb)
+                if !packets.isEmpty { noteMedia() }
+                for p in packets { ws.send(binary: p) }
+                return
+            }
+        }
+        opus = nil
+        guard let d = MacSound.encode(sb) else { return }
+        noteMedia()
         ws.send(binary: d)
     }
+
+    // Something is playing (sound, a video, a slideshow): that counts as use for the idle limit, up to a point
+    // (see NanoCore.tickStats). Any thread.
+    private let mediaLock = NSLock()
+    private var _lastMediaAt = Date.distantPast
+    var lastMediaAt: Date { mediaLock.lock(); defer { mediaLock.unlock() }; return _lastMediaAt }
+    private func noteMedia() { mediaLock.lock(); _lastMediaAt = Date(); mediaLock.unlock() }
     private(set) var box = CGSize(width: 1280, height: 800)
     /// The phone wants the Duo display (a virtual display shaped like its screen) and how roomy.
     private(set) var nanoOn = false
@@ -103,6 +131,8 @@ final class Session {
     private var hasPending = false
     // Video mode (the phone decodes H.264): the capture thread hands over the pixel buffer itself.
     private var videoMode = false
+    /// The phone's app decodes HEVC in hardware: same speed here, a third less data (pendingLock).
+    private var hevc = false
     private var pendingPB: CVPixelBuffer?
     private var latestPB: CVPixelBuffer?      // the newest capture, in either mode (to switch to video on a still screen)
 
@@ -113,6 +143,8 @@ final class Session {
     private var needKey = true                // next frame must be a key frame
     private var redo = false                  // the encoder skipped the last picture: encode it again
     private var sharpenLeft = 0               // re-encodes of a still picture, so it sharpens
+    private var lastEncodeAt = Date.distantPast
+    private var capTimer = false              // a held-back small change is waiting for its turn
     // Through a Tailscale relay: big changes go out coarse, then one sharp frame (see pumpVideo).
     private var relayed = false
     private var soft = false                  // coarse frames went out since the last sharp one
@@ -180,6 +212,15 @@ final class Session {
     var isAuthed: Bool {
         if case .authed = stage { return true }
         return false
+    }
+
+    /// How long a connection may take to sign in: a pairing waits for Allow on the Mac and the passkey setup.
+    var signInWindow: TimeInterval {
+        switch stage {
+        case .anonymous: return 120
+        case .known: return 180
+        default: return 300
+        }
     }
 
     var deviceID: String? {
@@ -301,6 +342,7 @@ final class Session {
             }
         case "sound":
             macSound = (m["on"] as? Bool) ?? false
+            if let c = m["codec"] as? String { soundOpus = c == "opus" }
             let sound = macSound
             DispatchQueue.main.async { [weak self] in self?.core.muteSpeakers(sound) }
         case "z": if let p = m["p"] as? String { inj.magnify(phase: p, amount: num(m["m"])) }
@@ -318,8 +360,10 @@ final class Session {
             }
         case "ack": ack(UInt32(truncatingIfNeeded: int(m["f"])))
         case "hello":
+            pendingLock.lock(); hevc = (m["hevc"] as? Bool) ?? false; pendingLock.unlock()
             setVideo((m["codec"] as? String) == "h264")
             macSound = (m["sound"] as? Bool) ?? false
+            soundOpus = (m["soundCodec"] as? String) == "opus"
             maxFPS = int(m["fps"], 60) >= 120 ? 120 : 60
             let clip = (m["clip"] as? Bool) ?? false
             DispatchQueue.main.async { [weak self] in self?.core.clipboard.enabled = clip }
@@ -374,11 +418,19 @@ final class Session {
 
     private func readBox(_ v: Any?) {
         guard let a = v as? [Any], a.count == 2 else { return }
-        box = CGSize(width: max(240, num(a[0])), height: max(160, num(a[1])))
+        box = CGSize(width: min(20_000, max(240, num(a[0]))), height: min(20_000, max(160, num(a[1]))))
     }
 
-    private func num(_ v: Any?) -> Double { (v as? NSNumber)?.doubleValue ?? 0 }
-    private func int(_ v: Any?, _ d: Int = 0) -> Int { (v as? NSNumber)?.intValue ?? d }
+    /// Numbers from the phone. Never infinite or NaN ("1e999" reads as infinity): turning one into an integer
+    /// later (mouse deltas, scroll steps) would crash the app. Large but finite values are clamped where used.
+    private func num(_ v: Any?) -> Double {
+        let d = (v as? NSNumber)?.doubleValue ?? 0
+        return d.isFinite ? max(-1e6, min(1e6, d)) : 0
+    }
+    private func int(_ v: Any?, _ d: Int = 0) -> Int {
+        guard let n = v as? NSNumber, n.doubleValue.isFinite, abs(n.doubleValue) < 1e15 else { return d }
+        return n.intValue
+    }
 
     static func flags(_ mask: Int) -> CGEventFlags {
         var f: CGEventFlags = []
@@ -473,6 +525,23 @@ final class Session {
         encodeQueue.async {
             self.forceFull = true
             self.needKey = true
+            self.pump()
+        }
+    }
+
+    /// Capture (re)started (a new shape, the Duo display, the screen woke): frames still in flight belong to the
+    /// old picture and their late acks would read as a slow network and cut the quality. Start the measuring over;
+    /// the link's own latency (minRtt) is kept.
+    func resetFlow() {
+        encodeQueue.async {
+            self.outstanding.removeAll()
+            self.srtt = 0
+            self.recentRtts.removeAll()
+            self.congestedFor = 0
+            self.qualityScale = 1
+            self.lastAdapt = Date()
+            self.resynced = false
+            self.encoder?.setBitrate(self.videoBitrate)
             self.pump()
         }
     }
@@ -652,8 +721,33 @@ final class Session {
     private func pumpVideo() {
         guard !encoding else { return }
         pendingLock.lock()
-        let fresh = hasPending ? pendingPB : nil
-        if fresh != nil { pendingPB = nil; hasPending = false }
+        var fresh = hasPending ? pendingPB : nil
+        pendingLock.unlock()
+        // A small change (a spinner, a blinking cursor, a slowly moving wallpaper) right after the last frame
+        // waits for its turn: at most 30 of those a second instead of 60–120, which saves both batteries. A
+        // change after a pause (typing, a click) still goes out at once, and so does anything bigger.
+        if let f = fresh, let last = lastPB, !needKey {
+            let share = Session.changedShare(f, last)
+            if share > 0.05 { noteMedia() }
+            let wait = 1.0 / 30 - Date().timeIntervalSince(lastEncodeAt)
+            if share < 0.005, wait > 0 {
+                if !capTimer {
+                    capTimer = true
+                    encodeQueue.asyncAfter(deadline: .now() + wait) { [weak self] in
+                        guard let self else { return }
+                        self.capTimer = false
+                        self.pump()
+                    }
+                }
+                return
+            }
+        }
+        pendingLock.lock()
+        if fresh != nil, pendingPB === fresh { pendingPB = nil; hasPending = false } else if hasPending {
+            fresh = pendingPB // a newer one came in meanwhile
+            pendingPB = nil
+            hasPending = false
+        }
         pendingLock.unlock()
         // The sharp frame waits while the link is queued up (unless nothing is in flight any more).
         let sharp = sharpDue && (outstanding.isEmpty || !congested)
@@ -727,15 +821,21 @@ final class Session {
     private func encodeVideo(_ pb: CVPixelBuffer, detail: H264Encoder.Detail) {
         let w = CVPixelBufferGetWidth(pb), h = CVPixelBufferGetHeight(pb)
         let fps = streamFPS
-        if encoder == nil || encoder!.width != w || encoder!.height != h || encoder!.fps != fps {
+        pendingLock.lock(); let wantHEVC = hevc; pendingLock.unlock()
+        if encoder == nil || encoder!.width != w || encoder!.height != h || encoder!.fps != fps || encoder!.hevc != wantHEVC {
             encoder?.invalidate()
-            encoder = H264Encoder(width: w, height: h, bitrate: videoBitrate, fps: fps)
+            encoder = H264Encoder(width: w, height: h, bitrate: videoBitrate, fps: fps, hevc: wantHEVC)
+            if encoder == nil && wantHEVC { // this Mac can't: H.264 from now on
+                pendingLock.lock(); hevc = false; pendingLock.unlock()
+                encoder = H264Encoder(width: w, height: h, bitrate: videoBitrate, fps: fps)
+            }
             needKey = true
             guard encoder != nil else { return }
         }
         let key = needKey
         needKey = false
         encoding = true
+        lastEncodeAt = Date()
         let t0 = Date()
         encoder!.encode(pb, key: key, detail: detail) { [weak self] result in
             guard let self else { return }

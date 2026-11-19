@@ -32,7 +32,7 @@ export const DEFAULTS = {
   macSound: true,       // play the Mac's sound on this iPhone
   video: true,          // H.264 video when the phone can decode it (else JPEG tiles)
   clipSync: true,
-  dictationEngine: 'whisper', // the iPhone app: whisper (most accurate, any language, slower) | apple (fast, live)       // the iPhone app: copy on the Mac, paste on the iPhone, and the other way
+  dictationEngine: 'apple', // the iPhone app: apple (fast, live) | whisper (most accurate, any language; a 630 MB download)
   smooth: true,         // the iPhone app on a ProMotion screen: up to 120 frames a second
   foldCloses: false,    // iPhone Duo: folding it shows a closed lid (and lets the Mac sleep); off: full screen
   touchId: '',          // where its Touch ID is (main.js TOUCH_ID_SPOTS): '' until the first passkey
@@ -84,6 +84,12 @@ export function setSetting(key, value) {
   settings[key] = value;
   try { localStorage.setItem(KEY, JSON.stringify(settings)); } catch {}
   for (const fn of listeners) fn(key, value);
+}
+
+/** Settings › Reset all: back to the defaults, keeping what this phone has learnt about itself. */
+export function resetSettings() {
+  const keep = { seenDuo: settings.seenDuo, duoShort: settings.duoShort, touchId: settings.touchId, sheetSeen: true, hintSeen: true };
+  try { localStorage.setItem(KEY, JSON.stringify({ ...DEFAULTS, ...keep })); } catch {}
 }
 
 export function onSetting(fn) {

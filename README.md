@@ -118,19 +118,19 @@ Duo Mac lives in the **menu bar**. Its panel shows the connected iPhone and the 
 
 - Hold ⌘ and tap C, or tap ⌘ then C (one-shot). Double-tap a modifier to lock it.
 - The top row works like a MacBook's: brightness, Mission Control, Spotlight, media, volume. Hold **fn/🌐** for F1–F12, Home/End/Page Up/Page Down and forward delete.
-- Long-press **fn/🌐**, or the 🎤 key, to type with the iPhone's own keyboard (dictation, emoji, accents).
+- The 🎤 key in the top row types with the iPhone's own keyboard (dictation, emoji, accents).
 - The **⚙︎ key** (top right, where Touch ID sits on a MacBook) opens the settings.
 - A Bluetooth keyboard paired with the iPhone types on the Mac too.
 
-**Settings** (⚙︎ key): tracking and scroll speed, natural scrolling, key sounds and haptics, F-key mode, quality (Fast / Balanced / Sharp), Mac screen (Fill with the Duo display, or Mirror as is), desktop size, layout (Laptop: keyboard and trackpad; Trackpad: just a big trackpad; Screen only, touched directly or as a trackpad), touch screen, Space Black or Silver (Laptop), fold position, top edge (start below the clock, or Full screen), notch, stats.
+**Settings** (⚙︎ key), in this order: layout (Laptop: keyboard and trackpad; Keyboard; Trackpad: just a big trackpad; Screen only, touched directly or as a trackpad), the screen/keyboard split (automatic, or set by hand), touching the screen, Space Black or Silver, the floating buttons; the Duo display (on or off), desktop size, top edge, quality (Fast / Balanced / Sharp); tracking and scroll speed, natural scrolling; the keyboard's top row; sound and haptics (one volume for all clicks); dictation and the shared clipboard (iPhone app); security; connection and stats; *Reset all settings*.
 
-**Duo display** (on by default): instead of squeezing your 16:10 screen into the phone's half, the Mac gets an extra display shaped exactly like it, and the Mac's own screen mirrors it. *Desktop size* picks how roomy it is: Larger text, Default or More space. It goes away a minute after the iPhone disconnects (or right away with *Mirror as is*, or when you quit the app).
+**Duo display** (on by default): instead of squeezing your 16:10 screen into the phone's half, the Mac gets an extra display shaped exactly like it, and the Mac's own screen mirrors it. *Desktop size* picks how roomy it is: Larger text, Default or More space. It stays 10 minutes after the iPhone disconnects, so coming back is instant, and goes as soon as someone uses the Mac itself (or right away with the Duo display off, *End session*, or when you quit the app). It offers every shape your phone has asked for, so turning or folding the phone switches it in under half a second.
 
 **Fold to close** (iPhone Duo): folding the phone turns its screen into a closed MacBook lid, edge to edge, and hangs up, so the Mac stops sharing its screen and can sleep; unfolding picks up where you left off. To use Duo Mac folded, pick *Keep using it* under Settings › Display › *When folded*.
 
 **Same Wi-Fi or hotspot (local mode):** when the iPhone and the Mac are on the same network, or the Mac is on the iPhone's hotspot, Duo Mac connects straight to the Mac instead of through Tailscale, which may route it through a relay or not work at all without internet. Every connection tries both routes and uses the local one when it answers, so there's nothing to switch. One-time setup on the iPhone: Duo Mac settings › Connection › *Set up…* installs a profile; then Settings › General › About › Certificate Trust Settings › turn on Duo Mac. The Mac has its own small certificate authority for this, limited by name constraints to local names and private addresses (it can't vouch for any website). On the local network a paired iPhone can unlock as usual, but pairing a new one only works through Tailscale. The app keeps a copy of itself on the phone, so it also opens with no internet.
 
-**The Mac's sound** plays on the iPhone's speaker (music, videos, calls, alerts), captured along with the screen, so it needs no extra permission; the Mac's own speakers are muted meanwhile and come back when the iPhone disconnects. Turn it off in Settings › Sound.
+**The Mac's sound** plays on the iPhone's speaker (music, videos, calls, alerts), captured along with the screen, so it needs no extra permission; the Mac's own speakers are muted meanwhile and come back when the iPhone disconnects. It goes as Opus (about 12 KB/s) to phones that decode it, else as plain samples (96 KB/s). Turn it off in Settings › Sound and haptics.
 
 **iPhone microphone** (optional): Mac apps (dictation, calls, voice modes) can hear the iPhone instead of the Mac. Add the **Duo Mac Microphone** once on the Mac (menu bar › Settings… › General › Install…, asks for your password; sound pauses for a second while Core Audio restarts), then turn on *Use this iPhone's microphone* in the iPhone settings (it tells you if the Mac doesn't have the driver yet). While it's on, the Duo Mac Microphone is the Mac's default input; your usual microphone comes back when it's off or the iPhone disconnects. It's a small loopback audio driver (`driver/`): Duo Mac plays the phone's audio into a hidden *Feed* device, and it comes back out of the microphone.
 
@@ -143,7 +143,7 @@ Duo Mac lives in the **menu bar**. Its panel shows the connected iPhone and the 
 - **Not on the internet.** The helper listens on the Mac only (127.0.0.1). Tailscale Serve publishes it at `https://<mac>.<tailnet>.ts.net`, reachable only by devices signed in to your Tailscale account, end-to-end encrypted, with a real HTTPS certificate.
 - **Only paired iPhones.** The QR code's pairing code only lets a phone *ask*; someone at the Mac must click **Allow** after comparing the 4-digit code. Each phone gets its own random key (the Mac stores only a hash). Remove a phone in Settings → Paired iPhones and it's cut off at once.
 - **A passkey every time you open it** (bound to the Mac's address), or the PIN. Five wrong PINs pause the PIN for an hour (doubling after that). Reconnecting within 15 minutes (folding, network changes) doesn't ask again; *Lock* in the settings does.
-- **On the Mac:** a banner and sound when an iPhone takes control, a menu bar icon (green while connected) with *End*, an **Allow iPhone connections** switch, disconnect after 30 minutes without use, and a log in `~/Library/Logs/Duo Mac/connections.log`.
+- **On the Mac:** a banner and sound when an iPhone takes control, a menu bar icon (green while connected) with *End*, an **Allow iPhone connections** switch, disconnect after 30 minutes without a touch (up to 4 hours while something plays), and a log in `~/Library/Logs/Duo Mac/connections.log`.
 - **Optional Tailscale hardening:** turn on *Device approval* in the admin console and two-factor sign-in on your Tailscale account; whoever controls that account controls your tailnet.
 
 ## Troubleshooting
@@ -159,7 +159,7 @@ Duo Mac lives in the **menu bar**. Its panel shows the connected iPhone and the 
 | Laggy | Quality → *Fast*, or move closer to the router. Stats (frame rate, latency) can be shown in the settings. |
 | "That pairing code is out of date" | Someone made a new pairing code on the Mac: scan the new QR code. Paired iPhones aren't affected. |
 | Screen freezes / "Reconnecting…" | The phone notices a dead connection within ~6 s and reconnects by itself. Folding the phone shut hangs up on purpose; unfolding reconnects. |
-| The Mac's screen has black bars | That's the Duo display at work. It goes back to normal a minute after the iPhone disconnects, or pick *Mirror as is*. |
+| The Mac's screen has black bars | That's the Duo display at work. It goes back to normal when you use the Mac (or 10 minutes after the iPhone disconnects); *End session* or turning the Duo display off does it right away. |
 | Anything else | `~/Library/Logs/Duo Mac/helper.log` (iPhone-side errors are recorded there too). |
 
 ## How it's built

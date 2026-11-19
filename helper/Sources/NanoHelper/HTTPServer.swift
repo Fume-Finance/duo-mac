@@ -1,3 +1,4 @@
+import Compression
 import Foundation
 import Network
 import CryptoKit
@@ -20,8 +21,46 @@ final class HTTPServer {
 
     var onWebSocket: ((WebSocketConnection, [String: String]) -> Void)?
     var onState: ((Bool, String?) -> Void)?
-    /// Generated files (path → body and type), served before the web app's own (main thread safe).
-    var dynamicFile: ((String) -> (Data, String)?)?
+    /// Generated files (path and query → body and type), served before the web app's own (any thread).
+    var dynamicFile: ((String, [String: String]) -> (Data, String)?)?
+
+    // MARK: The web app's version
+
+    /// The web app's files (relative paths) and a short hash of their names, sizes and dates: it changes whenever
+    /// build.sh installs a new web app, even while this app keeps running. Cached for a second (every connection
+    /// asks). Any thread.
+    private let buildLock = NSLock()
+    private var cachedBuild: (at: Date, build: String, files: [String])?
+
+    private func scanWebRoot() -> (build: String, files: [String]) {
+        buildLock.lock(); defer { buildLock.unlock() }
+        if let c = cachedBuild, Date().timeIntervalSince(c.at) < 1 { return (c.build, c.files) }
+        var files: [String] = []
+        var sig = ""
+        let keys: [URLResourceKey] = [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey]
+        if let e = FileManager.default.enumerator(at: webRoot, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles]) {
+            for case let url as URL in e {
+                let rel = String(url.standardizedFileURL.path.dropFirst(webRoot.path.count + 1))
+                if rel.hasPrefix("downloads") { e.skipDescendants(); continue }
+                guard let v = try? url.resourceValues(forKeys: Set(keys)), v.isRegularFile == true else { continue }
+                files.append(rel)
+                sig += "\(rel):\(v.fileSize ?? 0):\(v.contentModificationDate?.timeIntervalSince1970 ?? 0);"
+            }
+        }
+        files.sort()
+        let build = String(Data(SHA256.hash(data: Data(sig.utf8))).hex.prefix(12))
+        cachedBuild = (Date(), build, files)
+        return (build, files)
+    }
+
+    /// The web app's version, as in its page (index.html says it too).
+    var build: String { scanWebRoot().build }
+
+    /// /build.json: the version and the files, for the phone's stored copy (web/sw.js) to update itself.
+    func buildManifest() -> Data {
+        let (build, files) = scanWebRoot()
+        return (try? JSONSerialization.data(withJSONObject: ["build": build, "files": files])) ?? Data("{}".utf8)
+    }
 
     /// `queue`: where connections are handled; local mode's entrance shares the main server's, since
     /// sessions from both share the sign-in state (AuthManager, NanoCore), which isn't thread-safe.
@@ -160,12 +199,20 @@ private final class HTTPConnection {
         let target = String(parts[1])
         var headers: [String: String] = [:]
         for line in lines.dropFirst() {
+            // A bare line feed or other control character inside a header: not from a browser, and it could
+            // forge lines in the logs (names and addresses are logged).
+            guard !line.unicodeScalars.contains(where: { $0.value < 0x20 && $0 != "\t" || $0.value == 0x7F }) else {
+                return respond(400, "Bad Request")
+            }
             guard let i = line.firstIndex(of: ":") else { continue }
             let k = line[..<i].trimmingCharacters(in: .whitespaces).lowercased()
             let v = line[line.index(after: i)...].trimmingCharacters(in: .whitespaces)
             headers[k] = v
         }
-        let path = URLComponents(string: target)?.path ?? "/"
+        let comps = URLComponents(string: target)
+        let path = comps?.path ?? "/"
+        var query: [String: String] = [:]
+        for item in comps?.queryItems ?? [] { query[item.name] = item.value ?? "" }
         if server.localhostOnly && !HTTPServer.isOwnName(headers["host"]) {
             HTTPConnection.refusals.log { Log.warn("Refused a request addressed to \(headers["host"] ?? "no host")") }
             return respond(403, "Forbidden")
@@ -179,16 +226,16 @@ private final class HTTPConnection {
         default:
             guard method == "GET" || method == "HEAD" else { return respond(405, "Method Not Allowed") }
             if server.isLocalEntrance { return respond(404, "Not Found") } // the page itself comes through Tailscale (or the phone's copy)
-            if let (body, type) = server.dynamicFile?(path) {
+            if let (body, type) = server.dynamicFile?(path, query) {
                 let header = "HTTP/1.1 200 OK\r\nContent-Type: \(type)\r\nContent-Length: \(body.count)\r\n"
                     + "Cache-Control: no-store\r\n\(HTTPConnection.securityHeaders)Connection: close\r\n\r\n"
                 return finish(Data(header.utf8) + (method == "HEAD" ? Data() : body))
             }
-            serveFile(path: path, headOnly: method == "HEAD")
+            serveFile(path: path, headOnly: method == "HEAD", gzip: headers["accept-encoding"]?.contains("gzip") == true)
         }
     }
 
-    private func serveFile(path: String, headOnly: Bool) {
+    private func serveFile(path: String, headOnly: Bool, gzip: Bool) {
         var rel = path.removingPercentEncoding ?? path
         if rel.hasSuffix("/") { rel += "index.html" }
         while rel.hasPrefix("/") { rel.removeFirst() }
@@ -199,10 +246,22 @@ private final class HTTPConnection {
         var isDir: ObjCBool = false
         guard url.path.hasPrefix(server.webRoot.path),
               FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), !isDir.boolValue,
-              let body = try? Data(contentsOf: url) else {
+              var body = try? Data(contentsOf: url) else {
             return respond(404, "Not Found")
         }
-        let header = "HTTP/1.1 200 OK\r\nContent-Type: \(HTTPConnection.mime(url.pathExtension))\r\n"
+        // The page says which version it is (web/js/main.js compares it with the Mac's, see sw.js).
+        if rel == "index.html" {
+            body = Data(String(decoding: body, as: UTF8.self).replacingOccurrences(of: "__DUO_BUILD__", with: server.build).utf8)
+        }
+        let type = HTTPConnection.mime(url.pathExtension)
+        // Text goes compressed (about a third of the size), which counts through a Tailscale relay.
+        var encoding = ""
+        if gzip, type.hasPrefix("text/") || type.contains("json") || type.contains("svg"), body.count > 1024,
+           let z = Gzip.compress(body) {
+            body = z
+            encoding = "Content-Encoding: gzip\r\nVary: Accept-Encoding\r\n"
+        }
+        let header = "HTTP/1.1 200 OK\r\nContent-Type: \(type)\r\n\(encoding)"
             + "Content-Length: \(body.count)\r\nCache-Control: no-store\r\n\(HTTPConnection.securityHeaders)Connection: close\r\n\r\n"
         var out = Data(header.utf8)
         if !headOnly { out.append(body) }
@@ -290,5 +349,36 @@ private final class HTTPConnection {
         case "mp3": return "audio/mpeg"
         default: return "application/octet-stream"
         }
+    }
+}
+
+/// gzip (RFC 1952) around the system's DEFLATE (Compression), for text files.
+enum Gzip {
+    static func compress(_ data: Data) -> Data? {
+        let capacity = data.count + 1024
+        var raw = [UInt8](repeating: 0, count: capacity)
+        let n = data.withUnsafeBytes { src in
+            compression_encode_buffer(&raw, capacity, src.bindMemory(to: UInt8.self).baseAddress!, data.count, nil, COMPRESSION_ZLIB)
+        }
+        guard n > 0 else { return nil }
+        var out = Data([0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 0xff])
+        out.append(contentsOf: raw[0..<n])
+        let crc = crc32(data)
+        for v in [crc, UInt32(truncatingIfNeeded: data.count)] {
+            out.append(contentsOf: [UInt8(v & 0xff), UInt8(v >> 8 & 0xff), UInt8(v >> 16 & 0xff), UInt8(v >> 24)])
+        }
+        return out
+    }
+
+    private static let table: [UInt32] = (0..<256).map { i -> UInt32 in
+        var c = UInt32(i)
+        for _ in 0..<8 { c = c & 1 != 0 ? 0xEDB88320 ^ (c >> 1) : c >> 1 }
+        return c
+    }
+
+    static func crc32(_ data: Data) -> UInt32 {
+        var c: UInt32 = 0xffffffff
+        for b in data { c = table[Int((c ^ UInt32(b)) & 0xff)] ^ (c >> 8) }
+        return c ^ 0xffffffff
     }
 }

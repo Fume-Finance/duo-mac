@@ -48,27 +48,32 @@ final class H264Encoder {
     private(set) var bitrate: Int
 
     let fps: Int
+    /// HEVC instead of H.264 (the iPhone app decodes it in hardware): just as fast to encode here, and about a
+    /// third less data for the same picture, which matters most through a Tailscale relay.
+    let hevc: Bool
 
-    init?(width: Int, height: Int, bitrate: Int, fps: Int = 60) {
+    init?(width: Int, height: Int, bitrate: Int, fps: Int = 60, hevc: Bool = false) {
         self.width = width
         self.height = height
         self.fps = fps
         self.bitrate = bitrate
+        self.hevc = hevc
         let spec = [kVTVideoEncoderSpecification_EnableLowLatencyRateControl: true] as CFDictionary
         var s: VTCompressionSession?
         let status = VTCompressionSessionCreate(allocator: nil, width: Int32(width), height: Int32(height),
-                                                codecType: kCMVideoCodecType_H264, encoderSpecification: spec,
+                                                codecType: hevc ? kCMVideoCodecType_HEVC : kCMVideoCodecType_H264,
+                                                encoderSpecification: spec,
                                                 imageBufferAttributes: nil, compressedDataAllocator: nil,
                                                 outputCallback: nil, refcon: nil, compressionSessionOut: &s)
         guard status == noErr, let s else {
-            Log.warn("H.264: can't create an encoder (\(status))")
+            Log.warn("\(hevc ? "HEVC" : "H.264"): can't create an encoder (\(status))")
             return nil
         }
         session = s
         func set(_ key: CFString, _ value: CFTypeRef) { VTSessionSetProperty(s, key: key, value: value) }
         set(kVTCompressionPropertyKey_RealTime, kCFBooleanTrue)
         set(kVTCompressionPropertyKey_AllowFrameReordering, kCFBooleanFalse)
-        set(kVTCompressionPropertyKey_ProfileLevel, kVTProfileLevel_H264_High_AutoLevel)
+        set(kVTCompressionPropertyKey_ProfileLevel, hevc ? kVTProfileLevel_HEVC_Main_AutoLevel : kVTProfileLevel_H264_High_AutoLevel)
         // Key frames only when asked (a new phone, a decoder error): the link never loses data.
         set(kVTCompressionPropertyKey_MaxKeyFrameInterval, 100_000 as CFNumber)
         set(kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration, 3600 as CFNumber)
@@ -114,19 +119,20 @@ final class H264Encoder {
         frames += 1
         let pts = CMTime(value: frames, timescale: CMTimeScale(fps))
         let props = key ? [kVTEncodeFrameOptionKey_ForceKeyFrame: true] as CFDictionary : nil
+        let hevc = self.hevc
         let status = VTCompressionSessionEncodeFrame(s, imageBuffer: pb, presentationTimeStamp: pts, duration: .invalid,
                                                      frameProperties: props, infoFlagsOut: nil) { status, flags, sb in
             if status == noErr && (sb == nil || flags.contains(.frameDropped)) { return done(.skipped) }
-            guard status == noErr, let sb, let out = H264Encoder.output(sb) else { return done(.failed) }
+            guard status == noErr, let sb, let out = H264Encoder.output(sb, hevc: hevc) else { return done(.failed) }
             done(.frame(out))
         }
         if status != noErr {
-            Log.warn("H.264: encode failed (\(status))")
+            Log.warn("\(hevc ? "HEVC" : "H.264"): encode failed (\(status))")
             done(.failed)
         }
     }
 
-    private static func output(_ sb: CMSampleBuffer) -> Output? {
+    private static func output(_ sb: CMSampleBuffer, hevc: Bool) -> Output? {
         guard let block = CMSampleBufferGetDataBuffer(sb) else { return nil }
         let length = CMBlockBufferGetDataLength(block)
         var data = Data(count: length)
@@ -136,12 +142,31 @@ final class H264Encoder {
         let key = !(attachments?.first?[kCMSampleAttachmentKey_NotSync] as? Bool ?? false)
         var config: (String, Data)?
         if key, let fd = CMSampleBufferGetFormatDescription(sb),
-           let atoms = CMFormatDescriptionGetExtension(fd, extensionKey: kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms) as? [String: Any],
-           let avcC = atoms["avcC"] as? Data, avcC.count >= 4 {
-            // avc1.PPCCLL: profile, constraint flags and level, straight from the avcC record.
-            let codec = String(format: "avc1.%02x%02x%02x", avcC[1], avcC[2], avcC[3])
-            config = (codec, avcC)
+           let atoms = CMFormatDescriptionGetExtension(fd, extensionKey: kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms) as? [String: Any] {
+            if hevc, let hvcC = atoms["hvcC"] as? Data, hvcC.count >= 23 {
+                config = (hevcCodec(hvcC), hvcC)
+            } else if !hevc, let avcC = atoms["avcC"] as? Data, avcC.count >= 4 {
+                // avc1.PPCCLL: profile, constraint flags and level, straight from the avcC record.
+                config = (String(format: "avc1.%02x%02x%02x", avcC[1], avcC[2], avcC[3]), avcC)
+            }
         }
         return Output(data: data, key: key, config: config)
+    }
+
+    /// "hvc1.1.6.L120.B0": profile, compatibility flags, tier and level, constraints (ISO/IEC 14496-15, annex E),
+    /// straight from the hvcC record.
+    static func hevcCodec(_ c: Data) -> String {
+        let b = [UInt8](c)
+        let space = ["", "A", "B", "C"][Int(b[1] >> 6)]
+        let tier = (b[1] >> 5) & 1 == 1 ? "H" : "L"
+        let profile = Int(b[1] & 0x1F)
+        var compat = UInt32(b[2]) << 24 | UInt32(b[3]) << 16 | UInt32(b[4]) << 8 | UInt32(b[5])
+        var reversed: UInt32 = 0
+        for _ in 0..<32 { reversed = reversed << 1 | (compat & 1); compat >>= 1 }
+        var constraints = Array(b[6..<12])
+        while let last = constraints.last, last == 0 { constraints.removeLast() }
+        let parts = ["hvc1", "\(space)\(profile)", String(reversed, radix: 16, uppercase: true), "\(tier)\(Int(b[12]))"]
+            + constraints.map { String($0, radix: 16, uppercase: true) }
+        return parts.joined(separator: ".")
     }
 }

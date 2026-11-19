@@ -373,6 +373,7 @@ export class Screen {
     const z = this.zoom;
     this.wrap.style.transform = z.s === 1 ? '' : `translate(${z.x}px, ${z.y}px) scale(${z.s})`;
     if (this.nativeOn) this.placeNative();
+    this.onZoom?.(z.s);
   }
 
   /** Pointer position in screen-area coordinates (unzoomed), or the centre. */

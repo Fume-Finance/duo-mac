@@ -27,14 +27,35 @@ final class NanoDisplay {
     private(set) var stalled = false
     private var setupStarted = Date()
 
+    /// The heights this display offers for its width: every shape the phone has asked for (upright, sideways,
+    /// folded…), so turning or folding it is a mode switch (0.4 s, capture carries on) instead of a new display
+    /// (about 2 s, and capture starting over).
+    private var shapes: [Int] = []
+    private var appliedRate = 60
+
+    /// Shapes seen before, per width and refresh rate, newest first (kept across launches).
+    private static let shapesKey = "nanoShapes"
+    private static func remember(width w: Int, height h: Int, hz: Int) -> [Int] {
+        var all = UserDefaults.standard.dictionary(forKey: shapesKey) ?? [:]
+        var list = (all["\(w)@\(hz)"] as? [Int]) ?? []
+        list.removeAll { $0 == h }
+        list.insert(h, at: 0)
+        list = Array(list.prefix(6))
+        all["\(w)@\(hz)"] = list
+        UserDefaults.standard.set(all, forKey: shapesKey)
+        return list
+    }
+
     /// Creates the display if needed and sets its size in points (rendered at 2×, Retina).
     /// Returns the display ID, or nil if macOS refused.
     func ensure(width w: Int, height h: Int) -> CGDirectDisplayID? {
         setupStarted = Date()
         stalled = false
-        // Switching an existing display to a new size often leaves it stuck in 1× mode (macOS refuses
-        // the Retina mode, error 1001). A fresh display gets its Retina mode reliably, so replace it.
-        if display != nil, let p = points, p.w != w || p.h != h || appliedHz != hz {
+        let heights = NanoDisplay.remember(width: w, height: h, hz: hz)
+        // Replacing an existing display's modes often leaves it stuck in 1× mode (macOS refuses the Retina mode,
+        // error 1001), but switching between modes it was made with works. So a shape it already offers is a mode
+        // switch; another width, refresh rate or a new shape needs a fresh display, made with all known shapes.
+        if display != nil, let p = points, p.w != w || appliedHz != hz || !shapes.contains(h) {
             stopMirroring()
             display = nil
             points = nil
@@ -69,34 +90,39 @@ final class NanoDisplay {
             display = v
             points = nil
             Log.info("Duo display created (id \(v.displayID))")
-        }
-        guard let v = display else { return nil }
-        if points?.w != w || points?.h != h || appliedHz != hz {
-            // Changing the mode of a display that's being mirrored fails (error 1001):
-            // stop mirroring first; the caller mirrors again afterwards.
-            stopMirroring()
+            // Its modes, once: every known shape, Retina (2×) and 1×.
             func settings(_ rate: Int) -> CGVirtualDisplaySettings {
                 let s = CGVirtualDisplaySettings()
                 s.hiDPI = 1
-                s.modes = [
-                    CGVirtualDisplayMode(width: UInt(w * 2), height: UInt(h * 2), refreshRate: Double(rate)),
-                    CGVirtualDisplayMode(width: UInt(w), height: UInt(h), refreshRate: Double(rate)),
-                ]
+                s.modes = heights.flatMap { hh in [
+                    CGVirtualDisplayMode(width: UInt(w * 2), height: UInt(hh * 2), refreshRate: Double(rate)),
+                    CGVirtualDisplayMode(width: UInt(w), height: UInt(hh), refreshRate: Double(rate)),
+                ] }
                 return s
             }
             var rate = hz
             if !v.apply(settings(rate)) {
                 guard rate != 60, v.apply(settings(60)) else {
                     Log.warn("The Duo display rejected \(w)×\(h)")
+                    display = nil
                     return nil
                 }
                 Log.warn("The Duo display rejected \(rate) Hz: 60 Hz instead")
                 rate = 60
             }
             appliedHz = hz // what was asked (so a refusal isn't retried each time)
+            appliedRate = rate
+            shapes = heights
+        }
+        guard let v = display else { return nil }
+        if points?.w != w || points?.h != h {
+            // Changing the mode of a display that's being mirrored fails (error 1001):
+            // stop mirroring first; the caller mirrors again afterwards.
+            stopMirroring()
+            let switching = points != nil
             points = (w, h)
             isRetina = selectRetinaMode(v.displayID, w, h)
-            Log.info("Duo display set to \(w)×\(h) pt at \(rate) Hz")
+            Log.info("Duo display \(switching ? "switched" : "set") to \(w)×\(h) pt at \(appliedRate) Hz")
         }
         return v.displayID
     }

@@ -122,10 +122,13 @@ export class PairView {
     this.fit();
   }
 
-  /** Side by side when the space is wide, the Mac above the form when it's tall. */
+  /** Side by side when the space is wide enough for both, the Mac above the form otherwise; in a small
+   *  space (the cover screen's top half) the steps and the form only, without the picture. */
   fit() {
     const r = this.root.getBoundingClientRect();
-    if (r.width && r.height) this.root.classList.toggle('wide', r.width > r.height * 1.15);
+    if (!r.width || !r.height) return;
+    this.root.classList.toggle('wide', r.width >= 560 && r.width > r.height * 1.15);
+    this.root.classList.toggle('tight', r.height < 380 && r.width < 560);
   }
 
   typed() {

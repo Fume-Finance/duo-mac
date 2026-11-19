@@ -18,7 +18,7 @@
   --key-sub: #a3a3a9;
   --pad: #252629;
   --pad-edge: rgba(255, 255, 255, .09);
-  --pad-hint: rgba(255, 255, 255, .28);
+  --pad-hint: rgba(255, 255, 255, .5);
   --dots: rgba(0, 0, 0, .65);
   --lip: rgba(0, 0, 0, .45);
 }
@@ -34,7 +34,7 @@
   --key-sub: #b0b0b6;
   --pad: #d9dbde;
   --pad-edge: rgba(0, 0, 0, .12);
-  --pad-hint: rgba(0, 0, 0, .3);
+  --pad-hint: rgba(0, 0, 0, .55);
   --dots: rgba(0, 0, 0, .32);
   --lip: rgba(0, 0, 0, .18);
 }
@@ -180,6 +180,8 @@ html.native-video #screen { visibility: hidden; }
 
 /* Duo display: the Mac's desktop is shaped like this screen, so drop the bezel and chin. */
 #app.nano #lid { padding: calc(var(--sat) + 30px) var(--sar) 0 var(--sal); }
+#app.nano:not(.show-notch) #lid { padding-top: var(--sat); }
+#app.nano:not(.show-notch) #bezel-notch { display: none; }
 #app.nano #chin { display: none; }
 #app.nano #screen { border-radius: 0; }
 #app.nano #notch { display: none; }
@@ -305,8 +307,9 @@ html.native-video #screen { visibility: hidden; }
 .boot .field input::placeholder { color: rgba(255, 255, 255, .35); letter-spacing: .04em; }
 .boot .field button, .boot .acts .act {
   border: 0;
-  border-radius: 9px;
-  padding: 8px 14px;
+  border-radius: 10px;
+  min-height: 44px;
+  padding: 8px 16px;
   background: rgba(255, 255, 255, .14);
   font-size: 13px;
   font-weight: 600;
@@ -317,12 +320,15 @@ html.native-video #screen { visibility: hidden; }
 
 .boot .retry {
   margin-top: 4px;
-  padding: 6px 14px;
-  border-radius: 8px;
+  min-height: 44px;
+  padding: 8px 18px;
+  border-radius: 10px;
   border: 0;
-  background: rgba(255, 255, 255, .14);
-  font-size: 12px;
+  background: #0a84ff;
+  font-size: 14px;
+  font-weight: 600;
 }
+.boot .acts .act:disabled { opacity: .45; }
 
 #banner {
   position: absolute;
@@ -342,6 +348,26 @@ html.native-video #screen { visibility: hidden; }
   pointer-events: none;
 }
 #banner.error { border-color: rgba(255, 90, 80, .6); }
+/* The message that stays until it's dealt with ("Reconnecting…", Accessibility is off); short messages
+   (#banner) go below it while it shows. */
+#alert {
+  position: absolute; left: 50%; top: 8%; transform: translateX(-50%); max-width: 88%;
+  padding: 8px 13px; border-radius: 10px; background: rgba(30, 30, 34, .94);
+  border: 1px solid rgba(255, 255, 255, .14); box-shadow: 0 6px 20px rgba(0, 0, 0, .5);
+  font-size: 12.5px; line-height: 1.35; color: #f4f4f6; z-index: 5; pointer-events: none;
+}
+#alert.error { background: rgba(120, 28, 24, .95); border-color: rgba(255, 110, 100, .7); }
+#alert.warn { background: rgba(110, 76, 10, .95); border-color: rgba(255, 196, 70, .7); }
+#alert:not([hidden]) ~ #banner { top: calc(8% + 44px); }
+#app.nano.full-top #alert { top: calc(var(--sat) + 6px); }
+#app.nano.full-top #alert:not([hidden]) ~ #banner { top: calc(var(--sat) + 50px); }
+/* Zoomed in: how much, and a tap shows the whole screen again. */
+#zoom-chip {
+  position: absolute; right: 8px; top: 8px; z-index: 5; min-height: 32px; padding: 6px 12px;
+  border: 1px solid rgba(255, 255, 255, .2); border-radius: 999px; background: rgba(24, 24, 28, .85);
+  color: #f2f2f6; font: 600 12px -apple-system, system-ui, sans-serif;
+}
+#zoom-chip[hidden] { display: none; }
 
 /* Full screen: a pill like the buttons (same height, same bottom line), at the left edge. */
 #stats {
@@ -415,7 +441,7 @@ html.native-video #screen { visibility: hidden; }
 #tools { transition: opacity .2s; }
 #app.screen-only #tools { opacity: .75; }
 /* The Mac's pointer is near them: out of the way, so what's under them can be seen and clicked. */
-#app #tools.shy { opacity: 0; pointer-events: none; }
+#app #tools.shy { opacity: .2; pointer-events: none; }
 #tools button {
   display: grid;
   place-items: center;
@@ -754,7 +780,7 @@ html.native-video #screen { visibility: hidden; }
   gap: 3px;
   padding: 8px;
   color: var(--pad-hint);
-  font-size: clamp(8px, calc(var(--u) * .34), 12px);
+  font-size: clamp(10px, calc(var(--u) * .36), 13px);
   text-align: center;
   line-height: 1.25;
   transition: opacity .8s;
@@ -849,8 +875,8 @@ html.native-video #screen { visibility: hidden; }
 .panel header .x {
   display: grid;
   place-items: center;
-  width: 34px;
-  height: 34px;
+  width: 44px;
+  height: 44px;
   border: 0;
   border-radius: 50%;
   background: rgba(255, 255, 255, .14);
@@ -1091,12 +1117,20 @@ html.native-video #screen { visibility: hidden; }
 
 .btn {
   border: 0;
-  border-radius: 8px;
-  padding: 7px 12px;
+  border-radius: 10px;
+  min-height: 36px;
+  padding: 8px 14px;
   background: rgba(255, 255, 255, .12);
-  font-size: 12.5px;
+  font-size: 14px;
+  font-weight: 500;
+  position: relative;
 }
-.btn.blue { background: #0a84ff; }
+/* At least 44 pt to tap, without making the row taller. */
+.btn::after { content: ""; position: absolute; inset: -4px -2px; }
+.btn.blue { background: #0a84ff; font-weight: 600; }
+/* Pressed: every button answers the finger. */
+button:active:not(:disabled) { filter: brightness(1.25); transform: scale(.97); }
+button { transition: transform .08s, filter .08s; }
 
 .help { padding: 10px 12px; color: #b9b9c0; font-size: 12px; line-height: 1.55; }
 .help b { color: #ececf0; font-weight: 600; }
@@ -1441,6 +1475,8 @@ html.native-video #screen { visibility: hidden; }
 #overlay.pair #pairview.wide { flex-direction: row; gap: clamp(16px, 4vw, 36px); }
 #pairview.wide .pv-anim { width: auto; flex: 1 1 0; }
 #pairview.wide .pv-form { width: auto; flex: 0 1 300px; }
+#pairview.tight .pv-mac { display: none; }
+#pairview.tight { gap: 10px; }
 @keyframes pv-in { from { opacity: 0; transform: translateY(6px); } }
 
 .pv-anim { display: flex; flex-direction: column; align-items: center; gap: 10px; flex: 0 1 auto; min-height: 0; max-width: 460px; width: 100%; justify-content: center; }
@@ -1491,6 +1527,7 @@ html.native-video #screen { visibility: hidden; }
 @keyframes pv-hl { 0%, 31% { opacity: 0; } 33%, 39.5% { opacity: 1; } 41%, 100% { opacity: 0; } }
 @keyframes pv-win { 0%, 40% { opacity: 0; transform: scale(.9); } 45%, 92% { opacity: 1; transform: scale(1); } 97%, 100% { opacity: 0; transform: scale(1); } }
 @media (prefers-reduced-motion: reduce) {
+  #sheet *, #sheet *::before, #sheet *::after, .boot .bar i, #tools button.pop, button:active { animation: none !important; transition: none !important; transform: none !important; }
   .pv-cursor, .pv-click, .pv-menu, .pv-hl, .pv-steps li, .pv-steps b, .pv-icon rect:first-child { animation: none; }
   .pv-cursor { transform: translate(286px, 176px); }
   .pv-win { animation: none; opacity: 1; }

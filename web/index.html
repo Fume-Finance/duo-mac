@@ -9,11 +9,23 @@
 <meta name="apple-mobile-web-app-title" content="Duo Mac">
 <meta name="theme-color" content="#000000">
 <meta name="format-detection" content="telephone=no">
+<meta name="duo-build" content="__DUO_BUILD__">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="icon" type="image/png" href="icon-180.png">
 <title>Duo Mac</title>
 <link rel="stylesheet" href="app.css">
+<link rel="modulepreload" href="js/main.js">
+<link rel="modulepreload" href="js/settings.js">
+<link rel="modulepreload" href="js/net.js">
+<link rel="modulepreload" href="js/screen.js">
+<link rel="modulepreload" href="js/keyboard.js">
+<link rel="modulepreload" href="js/trackpad.js">
+<link rel="modulepreload" href="js/sheet.js">
+<link rel="modulepreload" href="js/auth.js">
+<link rel="modulepreload" href="js/appkeys.js">
+<link rel="modulepreload" href="js/pairview.js">
+<link rel="modulepreload" href="js/cursor.js">
 </head>
 <body>
 <div id="app" class="theme-spaceblack">
@@ -26,7 +38,9 @@
         <div id="mac-cursor" hidden></div>
         <div id="notch"><i id="cam"></i></div>
       </div>
-      <div id="banner" hidden></div>
+      <div id="alert" hidden role="status"></div>
+      <div id="banner" hidden role="status"></div>
+      <button id="zoom-chip" type="button" hidden></button>
       <div id="stats" hidden></div>
       <div id="overlay" class="off">
         <div class="boot">

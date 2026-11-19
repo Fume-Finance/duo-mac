@@ -94,20 +94,25 @@ export class Link {
         if (chosen) return;
         // The usual route opened, then lost the race's grace period: nothing else is coming.
         if (!a.local && attempts.every((o) => o === a || o.ws.readyState > 1)) clearTimeout(grace);
+        // The usual route failed (Tailscale restarting, no network yet): the Mac's local addresses get a moment
+        // more, not the full 4 s (away from home they don't answer at all, they just hang).
+        if (!a.local && !attempts.some((o) => o.ws.readyState === 1)) { clearTimeout(giveUp); giveUp = setTimeout(abandon, 700); }
         failed(ev.code);
       };
       ws.onerror = () => {};
     }
     if (!attempts.length) { end(); this.scheduleRetry(); return; }
     // Give up on attempts that hang (e.g. Wi-Fi just woke up): keep one that's open, if any.
-    giveUp = setTimeout(() => {
+    const abandon = () => {
+      if (chosen || this.attempts !== attempts) return;
       const open = attempts.find((o) => o.ws.readyState === 1);
       if (open) return choose(open);
       end();
       for (const o of attempts) { o.ws.onopen = o.ws.onclose = null; try { o.ws.close(); } catch {} }
       this.h.onState?.('closed', 0);
       this.scheduleRetry();
-    }, 4000);
+    };
+    giveUp = setTimeout(abandon, 4000);
   }
 
   localURL(h) {
@@ -222,6 +227,13 @@ export class Link {
     this.kicked = false;
     clearTimeout(this.retryTimer);
     if (this.ws && this.ws.readyState > 1) this.ws = null;
+    // A race still waiting only on addresses that hang, its usual route already failed: start over now (the
+    // app's Tailscale just came back, say), rather than when it gives up.
+    const a = this.attempts;
+    if (a && a.some((o) => !o.local && o.ws.readyState > 1) && !a.some((o) => o.ws.readyState === 1)) {
+      this.attempts = null;
+      for (const o of a) { o.ws.onopen = o.ws.onclose = o.ws.onmessage = null; try { o.ws.close(); } catch {} }
+    }
     this.connect();
   }
 
