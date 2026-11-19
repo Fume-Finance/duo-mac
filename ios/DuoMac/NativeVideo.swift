@@ -11,6 +11,16 @@ import VideoToolbox
 final class NativeVideo {
     let view = UIView()
     private let main = AVSampleBufferDisplayLayer()
+    /// The picture's place in the page. The decoded frame can be bigger than the picture: HEVC comes out padded
+    /// to whole coding blocks, on the right and at the bottom (it showed as stripes on the right edge). The
+    /// video layer is then made that much bigger inside this one, which cuts the padding off.
+    private let clip = CALayer()
+    private var frameRect = CGRect.zero                 // main thread
+    private var overscan = CGSize(width: 1, height: 1)  // main thread: decoded size ÷ picture size
+    private var size = (w: 0, h: 0)                     // video queue: the picture's own size
+    /// A line for the Mac's log (the page passes it on), once per stream: the decoded size. Main thread.
+    var onInfo: ((String) -> Void)?
+    private var reported = false                        // video queue
     private let queue = DispatchQueue(label: "duomac.video", qos: .userInteractive)
     private var format: CMVideoFormatDescription?   // video queue
     private var session: VTDecompressionSession?    // video queue
@@ -30,8 +40,10 @@ final class NativeVideo {
         view.isUserInteractionEnabled = false
         main.videoGravity = .resize
         main.backgroundColor = UIColor.black.cgColor
-        view.layer.addSublayer(main)
-        main.isHidden = true
+        clip.masksToBounds = true
+        clip.addSublayer(main)
+        view.layer.addSublayer(clip)
+        clip.isHidden = true
         let nc = NotificationCenter.default
         nc.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
             self?.away = true
@@ -47,19 +59,26 @@ final class NativeVideo {
 
     /// The picture's frame in the page (points).
     func place(on: Bool, frame: CGRect) {
+        frameRect = frame
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        main.isHidden = !on
-        main.frame = frame
+        clip.isHidden = !on
+        layoutVideo()
         CATransaction.commit()
         followFrameRate()
         if !on { queue.async { self.reset() } }
     }
 
+    /// main thread
+    private func layoutVideo() {
+        clip.frame = frameRect
+        main.frame = CGRect(x: 0, y: 0, width: frameRect.width * overscan.width, height: frameRect.height * overscan.height)
+    }
+
     /// While the picture shows (and the app is in front), a display link asks for the video's frame
     /// rate: a ProMotion screen only runs at 120 Hz while something on it asks for that.
     func followFrameRate() {
-        guard !main.isHidden, !away else {
+        guard !clip.isHidden, !away else {
             link?.invalidate()
             link = nil
             return
@@ -86,6 +105,8 @@ final class NativeVideo {
                                                  width: Int32(width), height: Int32(height), extensions: ext,
                                                  formatDescriptionOut: &fd) == noErr,
                   let fd else { return completion(false) }
+            self.size = (width, height)
+            self.reported = false
             if let s = self.session, VTDecompressionSessionCanAcceptFormatDescription(s, formatDescription: fd) {
                 self.format = fd
                 return completion(true)
@@ -124,10 +145,11 @@ final class NativeVideo {
                                             sampleSizeArray: &size, sampleBufferOut: &sample) == noErr,
                   let sample else { return completion(false) }
             var shown = false
+            let picture = self.size
             let status = VTDecompressionSessionDecodeFrame(s, sampleBuffer: sample, flags: [], infoFlagsOut: nil) {
                 status, _, image, _, _ in
                 guard status == noErr, let image else { return }
-                self.show(image)
+                self.show(image, picture: picture)
                 shown = true
             }
             if status == kVTInvalidSessionErr { self.reset() }
@@ -135,7 +157,25 @@ final class NativeVideo {
         }
     }
 
-    private func show(_ image: CVImageBuffer) {
+    private func show(_ image: CVImageBuffer, picture: (w: Int, h: Int)) {
+        // Padded (see `clip`): how much bigger than the picture, for the layout.
+        let W = CVPixelBufferGetWidth(image), H = CVPixelBufferGetHeight(image)
+        if !reported {
+            reported = true
+            let line = "video: decoded \(W)×\(H) for a \(picture.w)×\(picture.h) picture"
+            DispatchQueue.main.async { self.onInfo?(line) }
+        }
+        if picture.w > 0, picture.h > 0 {
+            let o = CGSize(width: max(1, CGFloat(W) / CGFloat(picture.w)), height: max(1, CGFloat(H) / CGFloat(picture.h)))
+            DispatchQueue.main.async {
+                guard o != self.overscan else { return }
+                self.overscan = o
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                self.layoutVideo()
+                CATransaction.commit()
+            }
+        }
         var fmt: CMVideoFormatDescription?
         guard CMVideoFormatDescriptionCreateForImageBuffer(allocator: nil, imageBuffer: image, formatDescriptionOut: &fmt) == noErr,
               let fmt else { return }

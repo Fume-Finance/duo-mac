@@ -52,6 +52,11 @@ final class WebViewController: UIViewController {
         w.hideKeyboardBar()
         bridge.web = w
         bridge.video = video
+        // The decoded size, in the Mac's log (the page forwards its console warnings there).
+        video.onInfo = { [weak w] line in
+            guard let d = try? JSONSerialization.data(withJSONObject: [line]), let json = String(data: d, encoding: .utf8) else { return }
+            w?.evaluateJavaScript("console.warn(\(json)[0])")
+        }
         web = w
         let root = UIView()
         root.backgroundColor = .black
