@@ -90,6 +90,10 @@ final class InputInjector {
     }
 
     private func isTextField(at p: CGPoint) -> Bool {
+        // Asked about one of this app's own windows (the "is controlling this Mac" banner, Settings), the
+        // Accessibility API runs its SwiftUI code right here, off the main thread, which crashes the app.
+        // Nothing in them is typed into from the phone: don't ask.
+        guard !InputInjector.ownWindow(at: p) else { return false }
         let sys = AXUIElementCreateSystemWide()
         AXUIElementSetMessagingTimeout(sys, 0.3)
         var hit: AXUIElement?
@@ -106,6 +110,19 @@ final class InputInjector {
             guard AXUIElementCopyAttributeValue(el, kAXParentAttribute as CFString, &parent) == .success,
                   let pa = parent, CFGetTypeID(pa) == AXUIElementGetTypeID() else { break }
             el = pa as! AXUIElement
+        }
+        return false
+    }
+
+    /// The topmost window at `p` (global coordinates, top-left origin) belongs to this app. Any thread.
+    static func ownWindow(at p: CGPoint) -> Bool {
+        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+                as? [[String: Any]] else { return false }
+        let me = ProcessInfo.processInfo.processIdentifier
+        for w in list { // front to back
+            guard let b = w[kCGWindowBounds as String] as? NSDictionary, let r = CGRect(dictionaryRepresentation: b),
+                  r.contains(p), (w[kCGWindowAlpha as String] as? Double ?? 1) > 0 else { continue }
+            return (w[kCGWindowOwnerPID as String] as? pid_t) == me
         }
         return false
     }

@@ -44,8 +44,11 @@ self.addEventListener('install', (e) => {
 });
 
 self.addEventListener('activate', (e) => e.waitUntil((async () => {
-  await caches.delete('duo-mac-v1'); // the copy the earlier, network-first version kept
+  // Coming from the earlier, network-first copy (it kept 'duo-mac-v1'): its pages can't update themselves,
+  // so reload them once, into this version. Later updates go through the page's own check.
+  const fromOld = await caches.delete('duo-mac-v1');
   await self.clients.claim();
+  if (fromOld) for (const c of await self.clients.matchAll({ type: 'window' })) c.navigate(c.url).catch(() => {});
 })()));
 
 // The page, each time it connects: "the Mac serves <build>". The copy is brought up to it if it isn't

@@ -26,6 +26,12 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
     /// Tells the page (Settings › Connection) how the app's own Tailscale is doing.
     func tailnetChanged() {
         web?.evaluateJavaScript("window.duoTailnet && window.duoTailnet(\(Self.tailnetJSON()))")
+        // The page opens from its stored copy before Tailscale is up, so its own update check found no
+        // network: check again now that the Mac can be reached (a newer copy is used from the next launch;
+        // pages from before the self-updating one have no other way to get it).
+        if case .running = Tailnet.shared.state {
+            web?.evaluateJavaScript("navigator.serviceWorker && navigator.serviceWorker.getRegistration().then((r) => r && r.update()).catch(() => {})")
+        }
     }
 
     /// Low Power Mode or the iPhone's heat changed the frame rate: for the display, and for the page

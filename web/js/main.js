@@ -2034,6 +2034,7 @@ window.duoTailnet = (t) => {
   tailnet = t;
   if (sheet.isOpen) sheet.update(sheetInfo());
   if (t?.state === 'running' && !link.open && !fatal) link.reconnectNow(); // its Tailscale (re)started: try now
+  if (t?.state === 'running') navigator.serviceWorker?.getRegistration().then((r) => r?.update()).catch(() => {});
 };
 native?.call({ t: 'tailnet' }).then((t) => window.duoTailnet(t)).catch(() => {});
 

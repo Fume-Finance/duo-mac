@@ -116,8 +116,15 @@ final class NanoDisplay {
         }
         guard let v = display else { return nil }
         if points?.w != w || points?.h != h {
-            // Changing the mode of a display that's being mirrored fails (error 1001):
-            // stop mirroring first; the caller mirrors again afterwards.
+            // A shape it already offers, while the Mac's screens mirror it: try the switch as it is. Stopping and
+            // starting the mirroring again around it takes 2–3 s. If macOS refuses (error 1001, as it can for a
+            // mirrored display), the way below: stop mirroring, switch, and the caller mirrors again.
+            if points != nil, !mirrored.isEmpty, switchMirrored(v.displayID, w, h) {
+                points = (w, h)
+                isRetina = true
+                Log.info("Duo display switched to \(w)×\(h) pt at \(appliedRate) Hz (mirroring kept)")
+                return v.displayID
+            }
             stopMirroring()
             let switching = points != nil
             points = (w, h)
@@ -125,6 +132,22 @@ final class NanoDisplay {
             Log.info("Duo display \(switching ? "switched" : "set") to \(w)×\(h) pt at \(appliedRate) Hz")
         }
         return v.displayID
+    }
+
+    /// One try at switching a mirrored display to its HiDPI w×h mode: true if it took.
+    private func switchMirrored(_ id: CGDirectDisplayID, _ w: Int, _ h: Int) -> Bool {
+        let opts = [kCGDisplayShowDuplicateLowResolutionModes: kCFBooleanTrue] as CFDictionary
+        guard let m = ((CGDisplayCopyAllDisplayModes(id, opts) as? [CGDisplayMode]) ?? [])
+                .first(where: { $0.width == w && $0.height == h && $0.pixelWidth == w * 2 }) else { return false }
+        var cfg: CGDisplayConfigRef?
+        guard CGBeginDisplayConfiguration(&cfg) == .success else { return false }
+        CGConfigureDisplayWithDisplayMode(cfg, id, m, nil)
+        let r = CGCompleteDisplayConfiguration(cfg, .forAppOnly)
+        guard r == .success, let cur = CGDisplayCopyDisplayMode(id), cur.width == w, cur.pixelWidth == w * 2 else {
+            Log.info("Duo display: switching while mirrored didn't take (\(r.rawValue)); the longer way")
+            return false
+        }
+        return true
     }
 
     /// Prefers the HiDPI ("looks like w×h", 2× pixels) mode over the 1× one.
