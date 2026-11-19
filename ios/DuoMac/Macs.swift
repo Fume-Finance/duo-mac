@@ -14,13 +14,21 @@ enum Macs {
         (Bundle.main.object(forInfoDictionaryKey: "DuoMacURL") as? String).flatMap { URL(string: $0)?.host }
     }
 
+    /// main thread: the list as last read, as every message from the page looks at it.
+    private static var cached: [Mac]?
+
     static var list: [Mac] {
         get {
+            if let cached { return cached }
             var l = (UserDefaults.standard.data(forKey: listKey)).flatMap { try? JSONDecoder().decode([Mac].self, from: $0) } ?? []
             if let b = builtIn, !l.contains(where: { $0.host == b }) { l.insert(Mac(host: b, name: ""), at: 0) }
+            cached = l
             return l
         }
-        set { UserDefaults.standard.set(try? JSONEncoder().encode(newValue), forKey: listKey) }
+        set {
+            UserDefaults.standard.set(try? JSONEncoder().encode(newValue), forKey: listKey)
+            cached = nil
+        }
     }
 
     static var current: String? {

@@ -161,12 +161,13 @@ export class Screen {
     const dv = new DataView(buf);
     if (dv.getUint8(0) === 4) {
       const n = dv.getUint8(1), w = dv.getUint16(2, true), h = dv.getUint16(4, true);
+      const codec = new TextDecoder().decode(new Uint8Array(buf, 6, n)); // avc1… (H.264) or hvc1… (HEVC)
       this.setSize(w, h);
       this.setNative(true);
       // Frames that follow go to the app in order, after this: they can be sent right away.
       this.vReady = true;
       this.vNeedKey = true;
-      native.call({ t: 'vconf', w, h, avcc: b64(new Uint8Array(buf, 6 + n)) })
+      native.call({ t: 'vconf', w, h, codec, avcc: b64(new Uint8Array(buf, 6 + n)) })
         .then((ok) => { if (!ok) this.videoFailed(new Error('the app couldn’t set up the decoder')); })
         .catch((e) => this.videoFailed(e));
       return Promise.resolve(null);

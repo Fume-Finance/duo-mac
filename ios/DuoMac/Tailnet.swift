@@ -13,6 +13,8 @@ final class Tailnet {
         case off
         case starting
         case needsLogin(URL)
+        /// Signed in, and waiting for the tailnet's admin to approve this device.
+        case needsApproval
         case running(suffix: String)
         case failed(String)
     }
@@ -22,6 +24,7 @@ final class Tailnet {
     private var sd: Int32 = -1
     private var proxy: (port: UInt16, cred: String)?
     private var timer: DispatchSourceTimer?
+    private var pollingFast = true
     /// main thread
     private(set) var state = State.off { didSet { if state != oldValue { print("tailnet: \(state)"); onChange?(state) } } }
     /// main thread
@@ -31,8 +34,6 @@ final class Tailnet {
         get { UserDefaults.standard.object(forKey: "tailnet") as? Bool ?? true }
         set { UserDefaults.standard.set(newValue, forKey: "tailnet") }
     }
-
-    var isRunning: Bool { if case .running = state { return true } else { return false } }
 
     func start() {
         #if targetEnvironment(simulator)
@@ -74,13 +75,22 @@ final class Tailnet {
         }
     }
 
-    /// queue: follow the device's state (signing in, then running) every second.
+    /// queue: follow the device's state (signing in, then running): every 100 ms until it's running, as
+    /// the page waits for it, then every 5 s.
     private func watch() {
         let t = DispatchSource.makeTimerSource(queue: queue)
-        t.schedule(deadline: .now(), repeating: 1)
+        t.schedule(deadline: .now(), repeating: .milliseconds(100))
         t.setEventHandler { [weak self] in self?.poll() }
         t.resume()
         timer = t
+        pollingFast = true
+    }
+
+    private func pollFast(_ fast: Bool) {
+        guard fast != pollingFast else { return }
+        pollingFast = fast
+        let every: DispatchTimeInterval = fast ? .milliseconds(100) : .seconds(5)
+        timer?.schedule(deadline: .now() + every, repeating: every)
     }
 
     private func poll() {
@@ -91,15 +101,17 @@ final class Tailnet {
             let suffix = ((st["CurrentTailnet"] as? [String: Any])?["MagicDNSSuffix"] as? String) ?? "ts.net"
             if proxy == nil { proxy = loopback() }
             guard let p = proxy else { return }
+            pollFast(false)
             DispatchQueue.main.async {
                 if case .running = self.state { return }
                 Self.useProxy(port: p.port, cred: p.cred, suffix: suffix)
                 self.state = .running(suffix: suffix)
             }
         case "NeedsLogin", "NeedsMachineAuth":
-            if let s = st["AuthURL"] as? String, let url = URL(string: s) {
-                DispatchQueue.main.async { self.state = .needsLogin(url) }
-            }
+            // A sign-in page to open; or none: signed in, the tailnet's admin still has to approve this device.
+            let url = backend == "NeedsLogin" ? (st["AuthURL"] as? String).flatMap { URL(string: $0) } : nil
+            pollFast(true)
+            DispatchQueue.main.async { self.state = url.map { .needsLogin($0) } ?? .needsApproval }
         default:
             break
         }

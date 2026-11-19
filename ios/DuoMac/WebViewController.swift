@@ -9,15 +9,20 @@ final class WebViewController: UIViewController {
     private let bridge = Bridge()
     private let video = NativeVideo()
     private var errorView: UIView?
+    private var errorText = ""
     private var retryTimer: Timer?
-    private var loadedOnce = false
-    /// Opened before the app's Tailscale was up: the page may be the stored copy (not the latest).
-    private var loadedBeforeTailnet = false
+    /// The page has opened at least once (from the Mac, or from its offline copy).
+    private var opened = false
     private var loginView: SFSafariViewController?
     private var askedToSignIn = false
 
     /// The Mac it opens (Settings › Macs switches it: Macs.swift).
     static var home: URL? { Macs.current.flatMap { URL(string: "https://\($0)/") } }
+
+    /// That Mac's own page (https, the usual port): the only one the app's features are for.
+    static func isHome(_ origin: WKSecurityOrigin) -> Bool {
+        origin.protocol == "https" && origin.port == 0 && origin.host == home?.host
+    }
 
     override func loadView() {
         let cfg = WKWebViewConfiguration()
@@ -39,7 +44,9 @@ final class WebViewController: UIViewController {
         w.scrollView.contentInsetAdjustmentBehavior = .never
         w.allowsBackForwardNavigationGestures = false
         w.allowsLinkPreview = false
-        w.isInspectable = true // Safari › Develop on the Mac can inspect it
+        #if DEBUG
+        w.isInspectable = true // Safari › Develop on the Mac can inspect it (debug builds only)
+        #endif
         w.uiDelegate = self
         w.navigationDelegate = self
         w.hideKeyboardBar()
@@ -63,26 +70,22 @@ final class WebViewController: UIViewController {
         bridge.onOpenMac = { [weak self] host, url in self?.open(host: host, pairURL: url) }
         Tailnet.shared.onChange = { [weak self] s in self?.tailnetChanged(s) }
         Tailnet.shared.start()
-        // Give the app's own Tailscale a moment to come up, so the first load goes through it.
-        if Tailnet.enabled {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
-                if self?.loadedOnce == false { self?.load() }
-            }
-        } else {
-            load()
-        }
+        // At once, without waiting for Tailscale: the page opens from its offline copy if it has to, and
+        // reconnects by itself once Tailscale is up.
+        load()
     }
 
     // MARK: Tailscale in the app (Tailnet.swift)
 
     private func tailnetChanged(_ s: Tailnet.State) {
         bridge.tailnetChanged()
+        if errorView != nil { showError(errorText) } // with what Tailscale needs now
         switch s {
         case .running:
             loginView?.dismiss(animated: true)
             loginView = nil
-            // Not opened yet, couldn't open, or opened from the stored copy: (re)load the latest.
-            if !loadedOnce || errorView != nil || loadedBeforeTailnet { load() }
+            // Couldn't open without it: now. (Open already: the page reconnects by itself, told just above.)
+            if !opened || errorView != nil { load() }
         case .needsLogin:
             // Ask once per launch; Settings › Connection on the page can start it later.
             if !askedToSignIn && !UserDefaults.standard.bool(forKey: "tailnetNotNow") {
@@ -125,23 +128,19 @@ final class WebViewController: UIViewController {
     }
 
     func becameActive() {
-        if errorView != nil { load() }
+        if errorView != nil { retry() }
         bridge.becameActive()
     }
 
     /// Another Mac: open its page (with a pairing code if it came from its QR code).
     func open(host: String, pairURL: URL? = nil) {
         Macs.current = host
-        loadedOnce = true
-        loadedBeforeTailnet = false
         hideError()
         let url = pairURL.flatMap { $0.host == host ? $0 : nil } ?? Self.home
         if let url { web.load(URLRequest(url: url, cachePolicy: .useProtocolCachePolicy, timeoutInterval: 15)) }
     }
 
     private func load() {
-        loadedOnce = true
-        loadedBeforeTailnet = Tailnet.enabled && !Tailnet.shared.isRunning
         print("loading \(Self.home?.absoluteString ?? "-") (tailnet \(Tailnet.shared.state))")
         guard let url = Self.home else {
             return showError("This copy of Duo Mac doesn't know your Mac's address. Build it again with tools/ios-app.sh on the Mac.")
@@ -152,29 +151,32 @@ final class WebViewController: UIViewController {
     // MARK: Couldn't load (the first time, before the page has an offline copy)
 
     private func showError(_ text: String) {
-        retryTimer?.invalidate()
+        errorText = text
         errorView?.removeFromSuperview()
         let box = UIView(frame: view.bounds)
         box.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         box.backgroundColor = .black
-        let title = UILabel()
         let cur = Macs.current
         let curName = Macs.list.first { $0.host == cur }.map { $0.name.isEmpty ? String($0.host.prefix { $0 != "." }) : $0.name }
-        title.text = Macs.list.count > 1 ? "Can't reach \(curName ?? "your Mac")" : "Can't reach your Mac"
-        title.font = .systemFont(ofSize: 20, weight: .semibold)
-        title.textColor = .white
-        let body = UILabel()
-        body.text = text
-        body.numberOfLines = 0
-        body.textAlignment = .center
-        body.font = .systemFont(ofSize: 15)
-        body.textColor = UIColor(white: 1, alpha: 0.6)
+        let title = Self.label(Macs.list.count > 1 ? "Can't reach \(curName ?? "your Mac")" : "Can't reach your Mac", .title3, bold: true)
+        var views: [UIView] = [title, Self.label(text, .subheadline, alpha: 0.6)]
+        // This iPhone's own Tailscale is what's missing: signing in, or the tailnet admin's approval.
+        switch Tailnet.shared.state {
+        case .needsLogin:
+            var sc = UIButton.Configuration.filled()
+            sc.title = "Sign in to Tailscale"
+            sc.cornerStyle = .capsule
+            views.append(UIButton(configuration: sc, primaryAction: UIAction { [weak self] _ in self?.showTailnetLogin() }))
+        case .needsApproval:
+            views.append(Self.label("Waiting for approval in the Tailscale admin console", .footnote, alpha: 0.8))
+        default:
+            break
+        }
         var bc = UIButton.Configuration.filled()
         bc.title = "Try again"
         bc.baseBackgroundColor = UIColor(white: 1, alpha: 0.15)
         bc.cornerStyle = .capsule
-        let button = UIButton(configuration: bc, primaryAction: UIAction { [weak self] _ in self?.retry() })
-        var views: [UIView] = [title, body, button]
+        views.append(UIButton(configuration: bc, primaryAction: UIAction { [weak self] _ in self?.retry() }))
         // Saved another Mac: open that one instead (Settings › Macs, when this one is away).
         let others = Macs.list.filter { $0.host != cur }
         if !others.isEmpty {
@@ -201,11 +203,25 @@ final class WebViewController: UIViewController {
         ])
         view.addSubview(box)
         errorView = box
-        // Keep trying quietly: Tailscale may just be switching on.
-        retryTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in self?.load() }
     }
 
+    /// A label in a Dynamic Type style: it follows Settings › Display › Text Size, also while showing.
+    private static func label(_ text: String, _ style: UIFont.TextStyle, bold: Bool = false, alpha: CGFloat = 1) -> UILabel {
+        let l = UILabel()
+        l.text = text
+        let f = UIFont.preferredFont(forTextStyle: style)
+        l.font = bold ? f.fontDescriptor.withSymbolicTraits(.traitBold).map { UIFont(descriptor: $0, size: 0) } ?? f : f
+        l.adjustsFontForContentSizeCategory = true
+        l.textColor = UIColor(white: 1, alpha: alpha)
+        l.numberOfLines = 0
+        l.textAlignment = .center
+        return l
+    }
+
+    /// "Try again": now, instead of the retry that's waiting.
     private func retry() {
+        retryTimer?.invalidate()
+        retryTimer = nil
         load()
     }
 
@@ -233,6 +249,7 @@ extension WebViewController: WKNavigationDelegate {
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         webView.hideKeyboardBar() // its content view is new after a reload
         print("loaded \(webView.url?.absoluteString ?? "")")
+        opened = true
         hideError()
     }
 
@@ -248,8 +265,15 @@ extension WebViewController: WKNavigationDelegate {
         let e = error as NSError
         print("load failed: \(e.domain) \(e.code) \(e.localizedDescription)")
         if e.domain == NSURLErrorDomain && e.code == NSURLErrorCancelled { return }
-        if errorView != nil { return } // already showing it, retrying
-        showError("Is Duo Mac open on the Mac, and Tailscale on on this iPhone? Once it has opened here, it also works without Tailscale on the same Wi-Fi or hotspot.\n\n(\(e.localizedDescription))")
+        if errorView == nil {
+            showError("Is Duo Mac open on the Mac, and is Tailscale connected on this iPhone? Once it has opened here, it also works without Tailscale on the same Wi-Fi or hotspot.\n\n(\(e.localizedDescription))")
+        }
+        // Once more in 5 s (Tailscale may just be switching on), unless a load is already under way then.
+        retryTimer?.invalidate()
+        retryTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: false) { [weak self] _ in
+            guard let self, !self.web.isLoading else { return }
+            self.load()
+        }
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
@@ -276,7 +300,8 @@ extension WebViewController: WKUIDelegate {
     func webView(_ webView: WKWebView, requestMediaCapturePermissionFor origin: WKSecurityOrigin,
                  initiatedByFrame frame: WKFrameInfo, type: WKMediaCaptureType,
                  decisionHandler: @escaping (WKPermissionDecision) -> Void) {
-        decisionHandler(origin.host == Self.home?.host ? .grant : .deny)
+        // The microphone only (the iPhone as the Mac's microphone), for the Mac's own page; never the camera.
+        decisionHandler(type == .microphone && Self.isHome(origin) ? .grant : .deny)
     }
 
     func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String,

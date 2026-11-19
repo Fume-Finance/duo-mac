@@ -2,6 +2,7 @@ import Foundation
 import CryptoKit
 import LocalAuthentication
 import Security
+import UIKit
 
 /// A passkey kept in this iPhone's Secure Enclave, unlocked with Face ID (or the iPhone's passcode).
 ///
@@ -25,8 +26,13 @@ enum Authenticator {
     private static let tagPrefix = "com.riccardoconti.duomac.passkey."
     private static let queue = DispatchQueue(label: "duomac.passkey", qos: .userInitiated)
 
+    /// Face ID only for the app in front: not for a page waking up while the app is in the background
+    /// or still coming back (main thread). The page asks again once it's active.
+    private static var inFront: Bool { UIApplication.shared.applicationState == .active }
+
     /// Pairing: a new key. Face ID first, so it's set up (and allowed) right away.
     static func create(rpId: String, challenge: String, completion: @escaping (Result<[String: Any], Error>) -> Void) {
+        guard inFront else { return completion(.failure(Failure.cancelled)) }
         let ctx = LAContext()
         ctx.localizedReason = "Unlock your Mac with Face ID"
         ctx.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: "Set up Face ID for your Mac") { ok, _ in
@@ -72,6 +78,7 @@ enum Authenticator {
     /// Unlocking: sign the Mac's challenge (this is when Face ID shows).
     static func get(rpId: String, challenge: String, credentialID: String,
                     completion: @escaping (Result<[String: Any], Error>) -> Void) {
+        guard inFront else { return completion(.failure(Failure.cancelled)) }
         queue.async {
             let ctx = LAContext()
             ctx.localizedReason = "Unlock your Mac"

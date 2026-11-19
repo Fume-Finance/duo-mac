@@ -6,14 +6,23 @@ final class QRScanner: UIViewController, AVCaptureMetadataOutputObjectsDelegate 
     private let session = AVCaptureSession()
     private var done: ((String?) -> Void)?
 
-    static func scan(from host: UIViewController, done: @escaping (String?) -> Void) {
+    /// done: what the code says, or nil if cancelled. `denied` instead when the camera isn't allowed
+    /// (Settings › Duo Mac), so the page can say where to allow it.
+    static func scan(from host: UIViewController, denied: @escaping () -> Void, done: @escaping (String?) -> Void) {
         AVCaptureDevice.requestAccess(for: .video) { ok in
             DispatchQueue.main.async {
-                guard ok else { return done(nil) }
+                guard ok else { return denied() }
                 let v = QRScanner()
                 v.done = done
                 v.modalPresentationStyle = .fullScreen
-                host.present(v, animated: true)
+                // From whatever is on top (a sheet may be up). If iOS doesn't show it after all, answer anyway:
+                // the page's call must always get its reply.
+                var top = host
+                while let p = top.presentedViewController, !p.isBeingDismissed { top = p }
+                top.present(v, animated: true)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                    if v.presentingViewController == nil, let d = v.done { v.done = nil; d(nil) }
+                }
             }
         }
     }
@@ -37,7 +46,8 @@ final class QRScanner: UIViewController, AVCaptureMetadataOutputObjectsDelegate 
         let label = UILabel()
         label.text = "Point at the QR code in Duo Mac on your Mac"
         label.textColor = .white
-        label.font = .systemFont(ofSize: 16, weight: .semibold)
+        label.font = .preferredFont(forTextStyle: .headline) // follows Settings › Display › Text Size
+        label.adjustsFontForContentSizeCategory = true
         label.textAlignment = .center
         label.numberOfLines = 0
         var bc = UIButton.Configuration.filled()

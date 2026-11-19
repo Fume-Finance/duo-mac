@@ -5,15 +5,25 @@ import VideoToolbox
 /// The Mac's screen, decoded by the iPhone's hardware decoder and shown in a layer behind the page.
 /// A web page draws at most 60 times a second; this layer follows the display, up to 120 Hz.
 ///
-/// The page keeps the connection: it hands each H.264 frame over (web/js/screen.js), says where the
-/// picture goes (its canvas, which it leaves see-through), and acknowledges a frame to the Mac once
-/// it's been decoded here, as before.
+/// The page keeps the connection: it hands each H.264 (or HEVC) frame over (web/js/screen.js), says
+/// where the picture goes (its canvas, which it leaves see-through), and acknowledges a frame to the Mac
+/// once it's been decoded here, as before.
 final class NativeVideo {
     let view = UIView()
     private let main = AVSampleBufferDisplayLayer()
     private let queue = DispatchQueue(label: "duomac.video", qos: .userInteractive)
     private var format: CMVideoFormatDescription?   // video queue
     private var session: VTDecompressionSession?    // video queue
+    private var link: CADisplayLink?                // main thread
+    private var away = false                        // main thread: the app is in the background
+
+    /// Frames a second to show, and to ask the Mac for: the screen's fastest (120 on ProMotion), but
+    /// 60 in Low Power Mode or while the iPhone is hot.
+    static var frameRate: Int {
+        let p = ProcessInfo.processInfo
+        if p.isLowPowerModeEnabled || p.thermalState == .serious || p.thermalState == .critical { return 60 }
+        return UIScreen.main.maximumFramesPerSecond
+    }
 
     init() {
         view.backgroundColor = .black
@@ -22,6 +32,15 @@ final class NativeVideo {
         main.backgroundColor = UIColor.black.cgColor
         view.layer.addSublayer(main)
         main.isHidden = true
+        let nc = NotificationCenter.default
+        nc.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.away = true
+            self?.followFrameRate()
+        }
+        nc.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.away = false
+            self?.followFrameRate()
+        }
     }
 
     // MARK: Where (main thread)
@@ -33,18 +52,39 @@ final class NativeVideo {
         main.isHidden = !on
         main.frame = frame
         CATransaction.commit()
+        followFrameRate()
         if !on { queue.async { self.reset() } }
+    }
+
+    /// While the picture shows (and the app is in front), a display link asks for the video's frame
+    /// rate: a ProMotion screen only runs at 120 Hz while something on it asks for that.
+    func followFrameRate() {
+        guard !main.isHidden, !away else {
+            link?.invalidate()
+            link = nil
+            return
+        }
+        if link == nil {
+            let l = CADisplayLink(target: FrameTick(), selector: #selector(FrameTick.tick))
+            l.add(to: .main, forMode: .common)
+            link = l
+        }
+        let fps = Float(Self.frameRate)
+        link?.preferredFrameRateRange = CAFrameRateRange(minimum: min(60, fps), maximum: fps, preferred: fps)
     }
 
     // MARK: Decoding (any thread in, the completion on the video queue)
 
-    /// The stream's description (sent before each key frame): [avcC], width, height.
-    func configure(avcC: Data, width: Int, height: Int, completion: @escaping (Bool) -> Void) {
+    /// The stream's description (sent before each key frame): its codec ("avc1.…" for H.264, "hvc1.…"
+    /// or "hev1.…" for HEVC), its avcC (or hvcC), width, height.
+    func configure(codec: String?, description: Data, width: Int, height: Int, completion: @escaping (Bool) -> Void) {
+        let hevc = codec?.hasPrefix("hvc1") == true || codec?.hasPrefix("hev1") == true
         queue.async {
             var fd: CMVideoFormatDescription?
-            let ext = [kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms: ["avcC": avcC]] as CFDictionary
-            guard CMVideoFormatDescriptionCreate(allocator: nil, codecType: kCMVideoCodecType_H264, width: Int32(width),
-                                                 height: Int32(height), extensions: ext, formatDescriptionOut: &fd) == noErr,
+            let ext = [kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms: [hevc ? "hvcC" : "avcC": description]] as CFDictionary
+            guard CMVideoFormatDescriptionCreate(allocator: nil, codecType: hevc ? kCMVideoCodecType_HEVC : kCMVideoCodecType_H264,
+                                                 width: Int32(width), height: Int32(height), extensions: ext,
+                                                 formatDescriptionOut: &fd) == noErr,
                   let fd else { return completion(false) }
             if let s = self.session, VTDecompressionSessionCanAcceptFormatDescription(s, formatDescription: fd) {
                 self.format = fd
@@ -64,7 +104,7 @@ final class NativeVideo {
         }
     }
 
-    /// One frame (AVCC: length-prefixed NAL units). Decoded and on screen when `completion(true)` runs.
+    /// One frame (length-prefixed NAL units). Decoded and on screen when `completion(true)` runs.
     func decode(_ data: Data, completion: @escaping (Bool) -> Void) {
         queue.async {
             guard let s = self.session, let fd = self.format, !data.isEmpty else { return completion(false) }
@@ -123,4 +163,9 @@ final class NativeVideo {
         session = nil
         format = nil
     }
+}
+
+/// The display link's target: it only has to exist (and ask for a frame rate), not draw anything.
+private final class FrameTick: NSObject {
+    @objc func tick(_ link: CADisplayLink) {}
 }
