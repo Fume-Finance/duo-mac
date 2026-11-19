@@ -337,6 +337,15 @@ function renderToolKeys() {
 }
 renderToolKeys();
 $('#tool-mic')?.addEventListener('pointerdown', (e) => { e.preventDefault(); haptic(); dictation.toggle(); });
+// Every full-screen button squeezes and flashes when tapped (restarted on quick repeat taps).
+$('#tools').addEventListener('pointerdown', (e) => {
+  const b = e.target.closest('#tools button');
+  if (!b) return;
+  b.classList.remove('pop');
+  void b.offsetWidth;
+  b.classList.add('pop');
+}, true);
+$('#tools').addEventListener('animationend', (e) => e.target.classList?.remove('pop'));
 addHapticSwitch($('#trackpad'));
 
 // ───── Touch on the screen half ─────
