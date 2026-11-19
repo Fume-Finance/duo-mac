@@ -134,6 +134,7 @@ final class ScreenSource: NSObject, FrameSource, SCStreamOutput, SCStreamDelegat
         Task {
             var failure: Error? = nil
             var started: SCStream? = nil
+            var startKey: FilterKey? = nil
             do {
                 // A just-created display (the Duo display) can take a moment to become capturable.
                 var found: SCDisplay?
@@ -146,6 +147,7 @@ final class ScreenSource: NSObject, FrameSource, SCStreamOutput, SCStreamDelegat
                 guard let display = found else { throw NanoError.noDisplay }
                 let hidden = ScreenSource.unshared()
                 let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+                startKey = FilterKey(hidden: hidden, apps: hidden.isEmpty ? [] : Set(content.applications.map(\.processID)))
                 let s = SCStream(filter: ScreenSource.filter(display, content, hidden),
                                  configuration: ScreenSource.config(want.w, want.h, want.fps), delegate: self)
                 try s.addStreamOutput(self, type: .screen, sampleHandlerQueue: self.sampleQueue)
@@ -164,7 +166,7 @@ final class ScreenSource: NSObject, FrameSource, SCStreamOutput, SCStreamDelegat
                         self.stream = s
                         self.streamDisplay = want.display
                         self.active = (want.w, want.h)
-                        self.hiddenWindows = ScreenSource.unshared()
+                        self.filterKey = startKey
                         self.watchUnshared()
                         Log.info("Capturing display \(want.display) at \(want.w)×\(want.h)")
                         self.applyResize()
@@ -256,45 +258,59 @@ final class ScreenSource: NSObject, FrameSource, SCStreamOutput, SCStreamDelegat
 
     struct Unshared: Hashable { let id: CGWindowID; let pid: pid_t; let app: String }
 
-    /// The display without those windows. ScreenCaptureKit doesn't list them, so they can't be left out one by
-    /// one: their apps are left out instead, keeping those apps' ordinary windows in the picture.
+    /// The display without those windows. ScreenCaptureKit lists neither them nor, when an app has only such
+    /// windows (Superhuman Go's strip), the app itself, so they can't be named to leave them out. Instead the
+    /// picture is made of every app it does list: the others' windows stay out. Apps that also have ordinary
+    /// windows are listed: their hidden ones are left out by name where possible.
     static func filter(_ display: SCDisplay, _ content: SCShareableContent, _ hidden: Set<Unshared>) -> SCContentFilter {
-        let pids = Set(hidden.map(\.pid))
-        let apps = content.applications.filter { pids.contains($0.processID) }
-        guard !apps.isEmpty else { return SCContentFilter(display: display, excludingWindows: []) }
-        let hiddenIDs = Set(hidden.map(\.id))
-        let keep = content.windows.filter { w in
-            guard let pid = w.owningApplication?.processID else { return false }
-            return pids.contains(pid) && !hiddenIDs.contains(w.windowID)
+        guard !hidden.isEmpty else { return SCContentFilter(display: display, excludingWindows: []) }
+        let ids = Set(hidden.map(\.id))
+        let listed = Set(content.applications.map(\.processID))
+        let unlisted = hidden.filter { !listed.contains($0.pid) }
+        let named = content.windows.filter { ids.contains($0.windowID) }
+        if unlisted.isEmpty {
+            return SCContentFilter(display: display, excludingWindows: named)
         }
-        let names = Set(hidden.map(\.app)).sorted().joined(separator: ", ")
-        Log.info("Leaving out windows not meant to be shared: \(hidden.count) of \(names) (\(keep.count) of their other windows kept)")
-        return SCContentFilter(display: display, excludingApplications: apps, exceptingWindows: keep)
+        let ownerless = content.windows.filter { $0.owningApplication == nil && $0.isOnScreen }.count
+        let names = Set(unlisted.map(\.app)).sorted().joined(separator: ", ")
+        Log.info("Leaving out windows not meant to be shared (\(names)): picture made of the \(content.applications.count) listed apps\(ownerless > 0 ? ", \(ownerless) windows without an app dropped" : "")")
+        return SCContentFilter(display: display, including: content.applications, exceptingWindows: named)
     }
 
-    private var hiddenWindows = Set<Unshared>()   // control queue
+    /// What the filter was built from: when it changes, the filter is rebuilt.
+    private struct FilterKey: Equatable { var hidden: Set<Unshared>; var apps: Set<pid_t> }
+    private var filterKey: FilterKey?             // control queue
     private var unsharedTimer: DispatchSourceTimer?
 
-    /// control queue: every 3 s, if such windows came or went, update the stream's filter.
+    /// control queue: every 1.5 s, if such windows came or went (or, while there are some, apps started or
+    /// quit), update the stream's filter.
     private func watchUnshared() {
         guard unsharedTimer == nil else { return }
         let t = DispatchSource.makeTimerSource(queue: control)
-        t.schedule(deadline: .now() + 3, repeating: 3)
+        t.schedule(deadline: .now() + 1.5, repeating: 1.5)
         t.setEventHandler { [weak self] in
-            guard let self, let stream = self.stream else { return }
-            let now = ScreenSource.unshared()
-            guard now != self.hiddenWindows else { return }
-            self.hiddenWindows = now
+            guard let self, let stream = self.stream, !self.refreshing else { return }
+            let hidden = ScreenSource.unshared()
+            if hidden.isEmpty && (self.filterKey?.hidden.isEmpty ?? true) { return }
+            self.refreshing = true
             let display = self.streamDisplay
             Task {
+                defer { self.control.async { self.refreshing = false } }
                 guard let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true),
                       let d = content.displays.first(where: { $0.displayID == display }) else { return }
-                try? await stream.updateContentFilter(ScreenSource.filter(d, content, now))
+                let key = FilterKey(hidden: hidden, apps: hidden.isEmpty ? [] : Set(content.applications.map(\.processID)))
+                let changed: Bool = self.control.sync {
+                    guard self.stream === stream, key != self.filterKey else { return false }
+                    self.filterKey = key
+                    return true
+                }
+                if changed { try? await stream.updateContentFilter(ScreenSource.filter(d, content, hidden)) }
             }
         }
         t.resume()
         unsharedTimer = t
     }
+    private var refreshing = false                // control queue
 
     // MARK: SCStreamOutput / SCStreamDelegate
 
