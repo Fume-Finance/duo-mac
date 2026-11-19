@@ -329,6 +329,7 @@ export class Keyboard {
     caps?.el.classList.toggle('on', this.caps);
     this.refreshLabels();
     this.renderFnRow();
+    this.cb.onMods?.(this);
   }
 
   // ───── Modifier state ─────

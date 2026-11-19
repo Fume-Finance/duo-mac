@@ -67,6 +67,7 @@ export const ICONS = {
   dictate: svg('<rect x="5.8" y="1.5" width="4.4" height="8" rx="2.2"/><path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.5"/>'),
   ret: svg('<path d="M13.5 3v5.5a2 2 0 0 1-2 2H3"/><path d="M5.5 8 3 10.5 5.5 13"/>'),
   screenshot: svg('<path d="M2 5V3.5A1.5 1.5 0 0 1 3.5 2H5M11 2h1.5A1.5 1.5 0 0 1 14 3.5V5M14 11v1.5a1.5 1.5 0 0 1-1.5 1.5H11M5 14H3.5A1.5 1.5 0 0 1 2 12.5V11"/><path d="M8 5.5v5M5.5 8h5"/>'),
+  command: svg('<path d="M6 6h4v4H6zM6 6V4.6A1.6 1.6 0 1 0 4.6 6H6M10 6V4.6A1.6 1.6 0 1 1 11.4 6H10M6 10v1.4A1.6 1.6 0 1 1 4.6 10H6M10 10v1.4a1.6 1.6 0 1 0 1.4-1.4H10"/>'),
   keyboard: svg('<rect x="1.5" y="4" width="13" height="8" rx="1.6"/><path d="M4 6.5h.5M6.5 6.5h.5M9 6.5h.5M11.5 6.5h.5M5 9.5h6"/>'),
 };
 

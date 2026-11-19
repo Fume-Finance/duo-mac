@@ -161,6 +161,7 @@ const keyboard = new Keyboard($('#keyboard'), $('#keypop'), {
     sendNow({ t: 'aux', k: nx, d: 1 });
     link.send({ t: 'aux', k: nx, d: 0 });
   },
+  onMods: (kb) => showHeldCommand(kb),
   onAction(a) {
     if (a === 'iosKeyboard') openIOSKeyboard();
     else if (a === 'dictate') dictation.toggle();
@@ -240,6 +241,7 @@ function runKey(a) {
   sound.click('key', 'pad');
   haptic();
   if (a.act === 'dictate') dictation.toggle();
+  else if (a.act === 'holdCommand') toggleHoldCommand();
   else if (a.act === 'screenshot') startShot();
   else if (a.act) sendNow({ t: 'act', a: a.act });
   else tapCombo(a.k[0], a.k[1]);
@@ -295,7 +297,23 @@ function placeSides(x, y, w, h, W) {
 function hideSides() { for (const side of ['l', 'r']) $(`#padside-${side}`).hidden = true; }
 
 // On the full screen (folded, or sideways): copy, paste, undo and redo beside 🎙, ⌨︎ and ⚙︎.
-const TOOL_KEYS = [COPY, PASTE, UNDO, REDO, { l: 'Screenshot', i: 'screenshot', act: 'screenshot' }];
+const HOLD_CMD = { l: 'Hold Command', i: 'command', act: 'holdCommand' };
+const TOOL_KEYS = [HOLD_CMD, COPY, PASTE, UNDO, REDO, { l: 'Screenshot', i: 'screenshot', act: 'screenshot' }];
+/** The ⌘ button: held down (locked, like double-tapping ⌘ on the keyboard) until tapped again, so a
+ *  click is a ⌘-click (a link opens in your browser, in the background) and shortcuts get ⌘ too. */
+function toggleHoldCommand() {
+  const s = keyboard.mods.command;
+  s.locked = !s.locked;
+  s.latched = false;
+  keyboard.renderMods();
+}
+function showHeldCommand(kb = keyboard) {
+  const on = kb.mods.command.locked || kb.mods.command.latched;
+  for (const b of document.querySelectorAll('[data-act="holdCommand"]')) {
+    b.classList.toggle('held', on);
+    b.setAttribute('aria-pressed', String(on));
+  }
+}
 function setMacApp(app) {
   keyboard.setApp(app || null);
 }
@@ -310,10 +328,12 @@ function renderToolKeys() {
     const b = document.createElement('button');
     b.type = 'button';
     b.setAttribute('aria-label', a.l);
+    if (a.act) b.dataset.act = a.act;
     b.innerHTML = ICONS[a.i];
     b.addEventListener('pointerdown', (e) => { e.preventDefault(); runKey(a); });
     box.appendChild(b);
   }
+  showHeldCommand();
 }
 renderToolKeys();
 $('#tool-mic')?.addEventListener('pointerdown', (e) => { e.preventDefault(); haptic(); dictation.toggle(); });
