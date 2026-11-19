@@ -326,7 +326,7 @@ addHapticSwitch($('#trackpad'));
 const hits = new Map();
 let hitSeq = 0, typeBtnTimer = 0;
 function probeText(nx, ny) {
-  if (view().layout === 'laptop' || !link.open || !iosBar.hidden) return 0;
+  if (view().layout === 'laptop' || !link.open || typing()) return 0;
   const id = ++hitSeq;
   hits.set(id, { text: null, tapped: 0 });
   if (hits.size > 8) hits.delete(hits.keys().next().value);
@@ -344,7 +344,7 @@ function hitResult(m) {
   const h = hits.get(m.id);
   if (!h) return;
   h.text = !!m.text;
-  if (h.text && h.tapped && performance.now() - h.tapped < 1500 && iosBar.hidden) showTypeButton();
+  if (h.text && h.tapped && performance.now() - h.tapped < 1500 && !typing()) showTypeButton();
 }
 function showTypeButton() {
   const b = $('#type-btn');
@@ -1587,7 +1587,6 @@ function openIOSKeyboard() {
   resetIOSInput();
   iosInput.style.pointerEvents = 'auto';
   iosInput.focus({ preventScroll: true });
-  iosBar.hidden = false;
   kbOpened = performance.now();
   kbLogged = false;
   kbShape = { w: innerWidth, h: innerHeight };
@@ -1651,21 +1650,30 @@ function fitAboveKeyboard(guess) {
 vv?.addEventListener('resize', () => { if (typing()) fitAboveKeyboard(); });
 vv?.addEventListener('scroll', () => { if (typing()) fitAboveKeyboard(); });
 
-/** The "Typing with the iPhone keyboard · Done" bar: beside the screen when it shrank, else on top. */
-function placeIOSBar() {
-  const f = screen.fit, s = iosBar.style;
-  const a = screen.area.getBoundingClientRect(), p = app.getBoundingClientRect(), r = screen.rect;
-  const gap = f ? a.width - (r.x + r.w) : 0;
-  iosBar.classList.toggle('side', gap >= 128);
-  if (gap >= 128) {
-    const w = Math.min(gap - 16, 180);
-    s.width = `${w}px`;
-    s.left = `${a.left - p.left + r.x + r.w + (gap - w) / 2}px`;
-  } else {
-    s.width = s.left = '';
-  }
-  s.top = f ? `${Math.max(a.top - p.top + f.y + 8, safeArea().top)}px` : '';
+/** Black space beside or above the picture while the iPhone keyboard is up, in px (the most on one side). */
+function blackAroundScreen() {
+  const f = screen.fit;
+  if (!f) return 0;
+  const r = screen.rect, a = screen.area;
+  return Math.max(r.x, a.clientWidth - (r.x + r.w), r.y - f.y);
 }
+/** Tapping that black space puts the keyboard away. Only when there's none (a hardware keyboard,
+ *  nothing covered) is the "Typing with the iPhone keyboard · Done" bar shown instead. */
+function placeIOSBar() {
+  iosBar.hidden = !typing() || blackAroundScreen() >= 40;
+  if (iosBar.hidden) return;
+  iosBar.classList.remove('side');
+  iosBar.style.width = iosBar.style.left = iosBar.style.top = '';
+}
+$('#screen-area').addEventListener('pointerdown', (e) => {
+  if (!typing() || !screen.fit || e.target.closest('button')) return;
+  const a = screen.area.getBoundingClientRect(), r = screen.rect;
+  const x = e.clientX - a.left, y = e.clientY - a.top;
+  if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) return; // on the picture: a normal touch
+  e.stopImmediatePropagation();
+  e.preventDefault();
+  closeIOSKeyboard();
+}, true);
 iosInput.addEventListener('beforeinput', (e) => {
   const t = e.inputType || '';
   if (t === 'insertText' || t === 'insertReplacementText' || t === 'insertFromPaste' || t === 'insertFromDictation') {

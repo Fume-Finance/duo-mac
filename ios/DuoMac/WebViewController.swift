@@ -42,6 +42,7 @@ final class WebViewController: UIViewController {
         w.isInspectable = true // Safari › Develop on the Mac can inspect it
         w.uiDelegate = self
         w.navigationDelegate = self
+        w.hideKeyboardBar()
         bridge.web = w
         bridge.video = video
         web = w
@@ -230,6 +231,7 @@ extension WebViewController: WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        webView.hideKeyboardBar() // its content view is new after a reload
         print("loaded \(webView.url?.absoluteString ?? "")")
         hideError()
     }
@@ -299,5 +301,27 @@ extension WebViewController: WKUIDelegate {
         a.addAction(UIAlertAction(title: "Cancel", style: .cancel) { _ in completionHandler(nil) })
         a.addAction(UIAlertAction(title: "OK", style: .default) { _ in completionHandler(a.textFields?.first?.text) })
         present(a, animated: true)
+    }
+}
+
+extension WKWebView {
+    /// No ⌃ ⌄ ✓ bar above the iPhone keyboard: the page types through one hidden field, and tapping
+    /// the black space around the shrunken screen puts the keyboard away. The bar is the inputAccessoryView
+    /// of WebKit's content view, which has no setting for it, so that view gets a subclass returning none.
+    func hideKeyboardBar() {
+        guard let content = scrollView.subviews.first(where: { NSStringFromClass(type(of: $0)).hasPrefix("WKContent") }),
+              let base = object_getClass(content) else { return }
+        let name = NSStringFromClass(base)
+        if name.hasSuffix("_NoBar") { return }
+        let sel = #selector(getter: UIResponder.inputAccessoryView)
+        var cls: AnyClass? = NSClassFromString(name + "_NoBar")
+        if cls == nil, let c = objc_allocateClassPair(base, name + "_NoBar", 0),
+           let m = class_getInstanceMethod(UIResponder.self, sel) {
+            let none: @convention(block) (AnyObject) -> AnyObject? = { _ in nil }
+            class_addMethod(c, sel, imp_implementationWithBlock(none), method_getTypeEncoding(m))
+            objc_registerClassPair(c)
+            cls = c
+        }
+        if let cls { object_setClass(content, cls) }
     }
 }
