@@ -272,6 +272,21 @@ export class Keyboard {
     return this.labels[code] || US[code] || ['', '', '', ''];
   }
 
+  /** The Mac key that types `ch` in the Mac's layout (and whether it needs shift), for keys pressed with a
+   *  modifier from the iPhone's own keyboard. */
+  codeFor(ch) {
+    if (ch === ' ') return { code: 0x31, shift: false };
+    for (const table of [this.labels, US]) {
+      for (const [code, r] of Object.entries(table)) {
+        if (r?.[0] === ch) return { code: +code, shift: false };
+        if (r?.[1] === ch) return { code: +code, shift: true };
+      }
+    }
+    const lower = ch.toLowerCase();
+    if (lower !== ch) { const k = this.codeFor(lower); if (k) return { code: k.code, shift: true }; }
+    return null;
+  }
+
   isLetter(code) {
     const r = this.row(code), base = r[0] || '';
     return base.length === 1 && base.toLowerCase() !== base.toUpperCase() && (r[1] || '') === base.toUpperCase();

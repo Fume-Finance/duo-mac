@@ -75,6 +75,23 @@ final class WebViewController: UIViewController {
         load()
     }
 
+    // MARK: The page's stored copy
+
+    /// A page from before the self-updating one (it has no version stamp) was stored on the phone by a
+    /// service worker that only fetches from the network, and opening before Tailscale is up keeps showing it.
+    /// Once Tailscale is up: drop that stored copy and load the page from the Mac, once. (Later updates go
+    /// through the page's own check.)
+    private var replacedOldPage = false
+    private func replaceOldPage() {
+        guard !replacedOldPage, opened, case .running = Tailnet.shared.state else { return }
+        web.evaluateJavaScript("!!document.querySelector('meta[name=\"duo-build\"]')") { [weak self] result, _ in
+            guard let self, result as? Bool == false, !self.replacedOldPage else { return }
+            self.replacedOldPage = true
+            print("old page: replacing its stored copy")
+            self.web.evaluateJavaScript("navigator.serviceWorker.getRegistrations().then((rs) => Promise.all(rs.map((r) => r.unregister()))).then(() => caches.keys()).then((ks) => Promise.all(ks.map((k) => caches.delete(k)))).finally(() => location.reload())")
+        }
+    }
+
     // MARK: Tailscale in the app (Tailnet.swift)
 
     private func tailnetChanged(_ s: Tailnet.State) {
@@ -85,7 +102,7 @@ final class WebViewController: UIViewController {
             loginView?.dismiss(animated: true)
             loginView = nil
             // Couldn't open without it: now. (Open already: the page reconnects by itself, told just above.)
-            if !opened || errorView != nil { load() }
+            if !opened || errorView != nil { load() } else { replaceOldPage() }
         case .needsLogin:
             // Ask once per launch; Settings › Connection on the page can start it later.
             if !askedToSignIn && !UserDefaults.standard.bool(forKey: "tailnetNotNow") {
@@ -251,6 +268,7 @@ extension WebViewController: WKNavigationDelegate {
         print("loaded \(webView.url?.absoluteString ?? "")")
         opened = true
         hideError()
+        replaceOldPage()
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {

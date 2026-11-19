@@ -1720,9 +1720,25 @@ const iosInput = $('#ios-input');
 const iosBar = $('#ios-bar');
 function typing() { return document.activeElement === iosInput; }
 
+/** A key from the iPhone's own keyboard, with ⌘ ⌃ ⌥ ⇧ held on the drawn keyboard or the ⌘ button. */
 function tapKey(code, mod = 0) {
+  mod |= keyboard.mask();
+  keyboard.markUsed();
   sendNow({ t: 'k', c: code, d: 1, mod });
   link.send({ t: 'k', c: code, d: 0, mod });
+  keyboard.consumeLatched();
+}
+
+/** Text from the iPhone's keyboard. With a modifier held (the ⌘ button, or ⌘ ⌃ ⌥ on the drawn keyboard) it
+ *  goes as key presses, so ⌘ then Space opens Spotlight or Raycast, ⌘ then C copies; otherwise as text. */
+function typeFromIOS(s) {
+  const mods = keyboard.mask() & (MOD.command | MOD.control | MOD.option);
+  if (!mods) return sendNow({ t: 'txt', s });
+  for (const ch of s) {
+    const k = keyboard.codeFor(ch);
+    if (k) tapKey(k.code, k.shift ? MOD.shift : 0);
+    else sendNow({ t: 'txt', s: ch });
+  }
 }
 
 function resetIOSInput() {
@@ -1825,7 +1841,7 @@ iosInput.addEventListener('beforeinput', (e) => {
   const t = e.inputType || '';
   if (t === 'insertText' || t === 'insertReplacementText' || t === 'insertFromPaste' || t === 'insertFromDictation') {
     const s = e.data ?? e.dataTransfer?.getData('text/plain') ?? '';
-    if (s) sendNow({ t: 'txt', s });
+    if (s) typeFromIOS(s);
     e.preventDefault();
   } else if (t === 'insertLineBreak' || t === 'insertParagraph') {
     tapKey(0x24);

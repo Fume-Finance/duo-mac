@@ -361,9 +361,9 @@ final class Session {
         case "ack": ack(UInt32(truncatingIfNeeded: int(m["f"])))
         case "hello":
             pendingLock.lock(); hevc = (m["hevc"] as? Bool) ?? false; pendingLock.unlock()
+            soundOpus = (m["soundCodec"] as? String) == "opus"
             setVideo((m["codec"] as? String) == "h264")
             macSound = (m["sound"] as? Bool) ?? false
-            soundOpus = (m["soundCodec"] as? String) == "opus"
             maxFPS = int(m["fps"], 60) >= 120 ? 120 : 60
             let clip = (m["clip"] as? Bool) ?? false
             DispatchQueue.main.async { [weak self] in self?.core.clipboard.enabled = clip }
@@ -556,7 +556,8 @@ final class Session {
         let latest = latestPB
         pendingLock.unlock()
         guard changed else { return }
-        Log.info("📱 \(clientName): \(on ? "H.264 video" : "JPEG tiles")")
+        pendingLock.lock(); let codec = hevc ? "HEVC" : "H.264"; pendingLock.unlock()
+        Log.info("📱 \(clientName): \(on ? "\(codec) video" : "JPEG tiles")\(soundOpus ? ", Opus sound" : "")")
         encodeQueue.async {
             self.encoder?.invalidate()
             self.encoder = nil
