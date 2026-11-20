@@ -145,8 +145,8 @@ final class ScreenSource: NSObject, FrameSource, SCStreamOutput, SCStreamDelegat
                     try await Task.sleep(nanoseconds: 250_000_000)
                 }
                 guard let display = found else { throw NanoError.noDisplay }
-                let hidden = ScreenSource.unshared()
                 let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+                let hidden = ScreenSource.unshared(content)
                 startKey = FilterKey(hidden: hidden, apps: hidden.isEmpty ? [] : Set(content.applications.map(\.processID)))
                 let s = SCStream(filter: ScreenSource.filter(display, content, hidden),
                                  configuration: ScreenSource.config(want.w, want.h, want.fps), delegate: self)
@@ -244,15 +244,20 @@ final class ScreenSource: NSObject, FrameSource, SCStreamOutput, SCStreamDelegat
     // MARK: Windows that don't want to be shared
 
     /// Windows their app marked as not to be shared (NSWindow.sharingType = .none), e.g. Grammarly's
-    /// Superhuman Go strip on the screen's edge: almost invisible on the Mac, but screen capture draws them
-    /// as a striped placeholder. Left out of the picture, as on the Mac. Any thread.
-    static func unshared() -> Set<Unshared> {
+    /// Superhuman Go strip on the screen's right edge: almost invisible on the Mac, but screen capture draws
+    /// them as a striped placeholder. ScreenCaptureKit doesn't list them, so they're the app windows on screen
+    /// that it leaves out of its list. Any thread.
+    static func unshared(_ content: SCShareableContent) -> Set<Unshared> {
         guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else { return [] }
+        let known = Set(content.windows.map(\.windowID))
+        let me = ProcessInfo.processInfo.processIdentifier
         return Set(list.compactMap { w in
-            guard (w[kCGWindowSharingState as String] as? Int) == 0,
-                  let id = w[kCGWindowNumber as String] as? CGWindowID,
-                  let pid = w[kCGWindowOwnerPID as String] as? pid_t else { return nil }
-            return Unshared(id: id, pid: pid, app: w[kCGWindowOwnerName as String] as? String ?? "?")
+            guard let id = w[kCGWindowNumber as String] as? CGWindowID, !known.contains(id),
+                  let pid = w[kCGWindowOwnerPID as String] as? pid_t, pid != me,
+                  let layer = w[kCGWindowLayer as String] as? Int, layer >= 0, layer < 1000,
+                  (w[kCGWindowAlpha as String] as? Double ?? 1) > 0,
+                  let app = w[kCGWindowOwnerName as String] as? String, app != "Window Server" else { return nil }
+            return Unshared(id: id, pid: pid, app: app)
         })
     }
 
@@ -268,6 +273,9 @@ final class ScreenSource: NSObject, FrameSource, SCStreamOutput, SCStreamDelegat
         let listed = Set(content.applications.map(\.processID))
         let unlisted = hidden.filter { !listed.contains($0.pid) }
         let named = content.windows.filter { ids.contains($0.windowID) }
+        Log.info("Windows not meant to be shared: " + hidden.map { h in
+            "\(h.app) (pid \(h.pid), window \(h.id)\(listed.contains(h.pid) ? ", app listed" : "")\(named.contains { $0.windowID == h.id } ? ", window listed" : ""))"
+        }.sorted().joined(separator: "; "))
         if unlisted.isEmpty {
             return SCContentFilter(display: display, excludingWindows: named)
         }
@@ -290,14 +298,13 @@ final class ScreenSource: NSObject, FrameSource, SCStreamOutput, SCStreamDelegat
         t.schedule(deadline: .now() + 1.5, repeating: 1.5)
         t.setEventHandler { [weak self] in
             guard let self, let stream = self.stream, !self.refreshing else { return }
-            let hidden = ScreenSource.unshared()
-            if hidden.isEmpty && (self.filterKey?.hidden.isEmpty ?? true) { return }
             self.refreshing = true
             let display = self.streamDisplay
             Task {
                 defer { self.control.async { self.refreshing = false } }
                 guard let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true),
                       let d = content.displays.first(where: { $0.displayID == display }) else { return }
+                let hidden = ScreenSource.unshared(content)
                 let key = FilterKey(hidden: hidden, apps: hidden.isEmpty ? [] : Set(content.applications.map(\.processID)))
                 let changed: Bool = self.control.sync {
                     guard self.stream === stream, key != self.filterKey else { return false }

@@ -114,6 +114,9 @@ export class Screen {
     const f = this.region();
     let w = f.w, h = f.w / aspect;
     if (h > f.h) { h = f.h; w = f.h * aspect; }
+    // Nearly the same shape (the Mac's sizes are whole points, even pixels): fill, rather than leave a
+    // hairline bar on two sides. Stretching under 1.5% can't be seen.
+    if (Math.abs(aspect / (f.w / f.h) - 1) < 0.015) { w = f.w; h = f.h; }
     const x = f.x + (f.w - w) / 2, y = f.y + (f.h - h) / 2;
     this.rect = { x, y, w, h };
     const s = this.canvas.style;
