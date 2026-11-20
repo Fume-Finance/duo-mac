@@ -35,6 +35,11 @@ export class Speaker {
   setMacName(name) { if (name) this.macName = name; }
 
   push(buf) {
+    if (!this.seen) {
+      this.seen = true;
+      const c = sound.context();
+      console.warn(`speaker: sound arrives (${new Uint8Array(buf, 0, 1)[0] === 6 ? 'Opus' : 'plain'}, sound ${settings.macSound ? 'on' : 'off'}, audio ${c ? c.state : 'none'}, session ${navigator.audioSession?.type ?? 'n/a'})`);
+    }
     if (!settings.macSound) return;
     if (!this.node) { this.load(); return; } // the first moments are dropped while it loads
     const dv = new DataView(buf);
@@ -129,15 +134,22 @@ export class Speaker {
     const ctx = sound.context();
     if (!ctx && !this.warnedNoCtx) { this.warnedNoCtx = true; console.warn('speaker: no audio context, the Mac\'s sound is dropped'); }
     if (!ctx || this.loading) return;
+    const stuck = setTimeout(() => {
+      // iOS can leave this hanging (the audio taken by something else): say so, and try again later.
+      console.warn(`speaker: player still loading after 4 s (audio ${ctx.state}, session ${navigator.audioSession?.type ?? 'n/a'}): retrying`);
+      this.loading = null;
+    }, 4000);
     this.loading = ctx.audioWorklet.addModule(new URL('./speaker-worklet.js', import.meta.url)).then(() => {
+      if (this.node) return;
       this.node = new AudioWorkletNode(ctx, 'duo-speaker', { outputChannelCount: [2] });
       this.node.connect(ctx.destination);
       console.warn(`speaker: playing the Mac's sound (${ctx.sampleRate} Hz, ${ctx.state}, session ${navigator.audioSession?.type ?? 'n/a'})`);
       // ('playback' while sound plays: it plays even with the iPhone's silent switch on, like a video.)
-    }).catch((e) => console.warn('speaker: ' + (e?.message || e))).finally(() => { this.loading = null; });
+    }).catch((e) => console.warn('speaker: ' + (e?.message || e))).finally(() => { clearTimeout(stuck); this.loading = null; });
   }
 
   stop() {
+    this.seen = false;
     this.pause();
     try { this.decoder?.close(); } catch {}
     this.decoder = null;
