@@ -89,12 +89,18 @@ final class Session {
     /// The Mac's sound (ScreenCaptureKit, 48 kHz), to the phone: Opus when it can decode that, else
     /// plain 24 kHz samples (MacSound). Silence isn't sent. Audio capture queue.
     func ingest(audio sb: CMSampleBuffer) {
+        soundIn += 1
+        if let fd = CMSampleBufferGetFormatDescription(sb), let a = CMAudioFormatDescriptionGetStreamBasicDescription(fd)?.pointee {
+            soundRate = Int(a.mSampleRate)
+        }
+        defer { reportSound() }
         guard macSound, isAuthed else { opus = nil; return }
         if soundOpus {
-            if opus == nil { opus = OpusEncoder() }
+            if opus == nil { opus = OpusEncoder(); if opus == nil { Log.info("Sound: the Opus encoder couldn't start, sending plain sound") } }
             if let o = opus {
                 let packets = o.encode(sb)
                 if !packets.isEmpty { noteMedia() }
+                soundOut += packets.count
                 for p in packets { ws.send(binary: p) }
                 return
             }
@@ -102,7 +108,16 @@ final class Session {
         opus = nil
         guard let d = MacSound.encode(sb) else { return }
         noteMedia()
+        soundOut += 1
         ws.send(binary: d)
+    }
+
+    // Sound diagnostics (capture thread): every 10 s while sound comes in, what came in and what went out.
+    private var soundIn = 0, soundOut = 0, soundRate = 0, soundReportAt = Date()
+    private func reportSound() {
+        guard Date().timeIntervalSince(soundReportAt) >= 10 else { return }
+        Log.info("Sound: \(soundIn) pieces in at \(soundRate) Hz, \(soundOut) packets to the phone (\(soundOpus ? "Opus" : "plain")\(macSound ? "" : ", sound off on the phone")\(isAuthed ? "" : ", locked"))")
+        soundIn = 0; soundOut = 0; soundReportAt = Date()
     }
 
     // Something is playing (sound, a video, a slideshow): that counts as use for the idle limit, up to a point

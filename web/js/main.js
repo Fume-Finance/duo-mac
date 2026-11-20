@@ -1602,7 +1602,7 @@ link = new Link({
     }
   },
   onFrame(buf) {
-    if (new Uint8Array(buf, 0, 1)[0] === 2) { speaker.push(buf); return; } // the Mac's sound
+    { const t = new Uint8Array(buf, 0, 1)[0]; if (t === 2 || t === 6) { speaker.push(buf); return; } } // the Mac's sound: plain (2) or Opus (6)
     screen.enqueue(buf).then((id) => {
       if (id == null) return; // the video's description, not a frame
       link.send({ t: 'ack', f: id });

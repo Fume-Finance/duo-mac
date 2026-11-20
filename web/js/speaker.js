@@ -127,6 +127,7 @@ export class Speaker {
 
   load() {
     const ctx = sound.context();
+    if (!ctx && !this.warnedNoCtx) { this.warnedNoCtx = true; console.warn('speaker: no audio context, the Mac\'s sound is dropped'); }
     if (!ctx || this.loading) return;
     this.loading = ctx.audioWorklet.addModule(new URL('./speaker-worklet.js', import.meta.url)).then(() => {
       this.node = new AudioWorkletNode(ctx, 'duo-speaker', { outputChannelCount: [2] });
