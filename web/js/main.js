@@ -313,7 +313,7 @@ function hideSides() { for (const side of ['l', 'r']) $(`#padside-${side}`).hidd
 
 // On the full screen (folded, or sideways): copy, paste, undo and redo beside 🎙, ⌨︎ and ⚙︎.
 const HOLD_CMD = { l: 'Hold Command', i: 'command', act: 'holdCommand' };
-const TOOL_KEYS = [HOLD_CMD, COPY, PASTE, UNDO, REDO, { l: 'Screenshot', i: 'screenshot', act: 'screenshot' }];
+const TOOL_KEYS = [HOLD_CMD, COPY, PASTE, UNDO, REDO, { l: 'Screenshot', i: 'screenshot', act: 'screenshot' }, RETURN];
 /** The ⌘ button: held down (locked, like double-tapping ⌘ on the keyboard) until tapped again, so a
  *  click is a ⌘-click (a link opens in your browser, in the background) and shortcuts get ⌘ too. */
 function toggleHoldCommand() {

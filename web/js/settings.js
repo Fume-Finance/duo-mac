@@ -12,7 +12,7 @@ export const DEFAULTS = {
   volume: 0.55,
   haptics: true,
   padButtons: true,     // copy, paste, undo, dictate, return beside the trackpad (when there's room)
-  toolButtons: 'command,copy,paste,undo,redo,screenshot,dictate,keyboard', // full screen: which buttons show next to ⚙︎ (always there)
+  toolButtons: 'command,copy,paste,undo,redo,screenshot,ret,dictate,keyboard', // full screen: which buttons show next to ⚙︎ (always there)
   fnStandard: false,    // top row sends F1…F12 instead of the Mac app's keys (appkeys.js)
   quality: 'balanced',  // fast | balanced | sharp
   theme: 'spaceblack',  // spaceblack | silver
@@ -38,7 +38,7 @@ export const DEFAULTS = {
   touchId: '',          // where its Touch ID is (main.js TOUCH_ID_SPOTS): '' until the first passkey
   seenDuo: false,       // this phone has opened up into an iPhone Duo's inner screen
   duoShort: 0,          // that inner screen's short side (CSS px), to tell folded from unfolded
-  defaultsRev: 6,       // bumped when a default changes for everyone (see upgrade)
+  defaultsRev: 7,       // bumped when a default changes for everyone (see upgrade)
 };
 
 /** Settings saved before defaults changed take the new defaults for those keys. */
@@ -58,6 +58,10 @@ export function upgrade(v) {
   // rev 6: the ⌘ button (held until tapped again), shown unless turned off
   if (!(v.defaultsRev >= 6) && typeof v.toolButtons === 'string' && !v.toolButtons.includes('command')) {
     v.toolButtons = v.toolButtons ? `command,${v.toolButtons}` : 'command';
+  }
+  // rev 7: the Return button (submits), shown unless turned off
+  if (!(v.defaultsRev >= 7) && typeof v.toolButtons === 'string' && !v.toolButtons.includes('ret')) {
+    v.toolButtons = v.toolButtons ? `${v.toolButtons},ret` : 'ret';
   }
   v.defaultsRev = DEFAULTS.defaultsRev;
   return v;

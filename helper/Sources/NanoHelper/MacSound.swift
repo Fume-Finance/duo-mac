@@ -220,12 +220,36 @@ final class MacSpeakers {
             if let uid = Microphone.uid(of: dev) { UserDefaults.standard.set(uid, forKey: Self.key) }
             Log.info("Mac speakers muted while the iPhone plays the sound (\(Microphone.name(of: dev) ?? "output"))")
             watchOutput()
+            keepMuted()
         } else if let dev = muted {
+            keeper?.cancel()
+            keeper = nil
             Self.setMute(dev, false)
             muted = nil
             UserDefaults.standard.removeObject(forKey: Self.key)
             Log.info("Mac speakers back on")
         }
+    }
+
+    private var keeper: DispatchSourceTimer?  // main thread
+
+    /// macOS can turn the sound back on by itself (headphones gone, output switched: it restores the
+    /// device's own setting just after telling us). While the phone plays the sound, every 2 s: still muted?
+    private func keepMuted() {
+        guard keeper == nil else { return }
+        let t = DispatchSource.makeTimerSource(queue: .main)
+        t.schedule(deadline: .now() + 2, repeating: 2)
+        t.setEventHandler { [weak self] in
+            guard let self, let dev = self.muted else { return }
+            if let now = Self.defaultOutput(), now != dev {
+                self.mute(false)
+                self.mute(true)
+            } else if Self.isMuted(dev) == false, Self.setMute(dev, true) {
+                Log.info("Mac speakers were turned back on (not by Duo Mac): muted again while the iPhone plays the sound")
+            }
+        }
+        t.resume()
+        keeper = t
     }
 
     /// Headphones plugged in, or another output picked: mute that one instead.
