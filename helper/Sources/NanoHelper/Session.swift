@@ -360,7 +360,9 @@ final class Session {
             }
         case "ack": ack(UInt32(truncatingIfNeeded: int(m["f"])))
         case "hello":
-            pendingLock.lock(); hevc = (m["hevc"] as? Bool) ?? false; pendingLock.unlock()
+            // HEVC off for now: the iPhone shows the encoder's padding (the picture's width rounded up to a
+            // whole block) as a dotted strip on the right edge. H.264 doesn't. Re-enable once that's handled.
+            pendingLock.lock(); hevc = false && ((m["hevc"] as? Bool) ?? false); pendingLock.unlock()
             soundOpus = (m["soundCodec"] as? String) == "opus"
             setVideo((m["codec"] as? String) == "h264")
             macSound = (m["sound"] as? Bool) ?? false
