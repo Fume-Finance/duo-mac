@@ -934,9 +934,10 @@ final class NanoCore {
             let idle = CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: CGEventType(rawValue: ~0)!)
             if idle < Date().timeIntervalSince(left) - 1.5 {
                 Log.info("Someone is using the Mac: putting its own screen back")
-                item.cancel()
+                // perform() first: a cancelled work item no longer runs, even when performed by hand.
                 self.nanoTeardown = nil
                 item.perform()
+                item.cancel()
                 return
             }
             self.watchLocalUse(since: left, item: item)
@@ -963,9 +964,14 @@ final class NanoCore {
                 self.endSession(s)
             } else {
                 DispatchQueue.main.async {
-                    self.nanoTeardown?.perform()
-                    self.nanoTeardown?.cancel()
-                    self.nanoTeardown = nil
+                    if let item = self.nanoTeardown {
+                        self.nanoTeardown = nil
+                        item.perform()
+                        item.cancel()
+                    } else if self.nano.isActive || self.source.targetDisplayID != nil {
+                        // Nothing pending (it was dropped): put the screen back now all the same.
+                        self.scheduleNanoTeardown(after: 0)
+                    }
                 }
             }
         }
