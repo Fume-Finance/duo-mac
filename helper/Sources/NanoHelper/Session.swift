@@ -743,8 +743,9 @@ final class Session {
         pendingLock.unlock()
         // A small change (a spinner, a blinking cursor, a slowly moving wallpaper) right after the last frame
         // waits for its turn: at most 30 of those a second instead of 60–120, which saves both batteries. A
-        // change after a pause (typing, a click) still goes out at once, and so does anything bigger.
-        if let f = fresh, let last = lastPB, !needKey {
+        // change after a pause still goes out at once, and so does anything bigger. Not while you're moving
+        // the pointer, scrolling or typing (the last second): the pointer and the letters move at full speed.
+        if let f = fresh, let last = lastPB, !needKey, Date().timeIntervalSince(lastInputAt) > 1 {
             let share = Session.changedShare(f, last)
             if share > 0.05 { noteMedia() }
             let wait = 1.0 / 30 - Date().timeIntervalSince(lastEncodeAt)
