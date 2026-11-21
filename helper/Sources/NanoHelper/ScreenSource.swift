@@ -36,6 +36,14 @@ struct DisplayInfo {
         return Array(ids.prefix(Int(count)))
     }
 
+    /// Every display connected, including one that mirrors another (left out of the active list).
+    static func onlineDisplays() -> [CGDirectDisplayID] {
+        var ids = [CGDirectDisplayID](repeating: 0, count: 16)
+        var count: UInt32 = 0
+        CGGetOnlineDisplayList(16, &ids, &count)
+        return Array(ids.prefix(Int(count)))
+    }
+
     /// All displays, for the phone's display picker. Main thread only.
     static func all() -> [DisplayInfo] {
         activeDisplays().indices.map { resolve(index: $0) }

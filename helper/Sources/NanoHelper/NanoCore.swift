@@ -901,8 +901,10 @@ final class NanoCore {
             // Don't take away the only screen of a Mac with its lid closed, nor reconfigure while the
             // Mac's own screens sleep: try again soon. Locked is no reason to wait: kept at the lock
             // screen, the Duo display fell asleep and the Mac's screen mirroring it stayed black.
-            let own = DisplayInfo.activeDisplays().filter { $0 != self.nano.displayID }
-            if NanoCore.lidClosed() || (!own.isEmpty && own.allSatisfy({ CGDisplayIsAsleep($0) != 0 })) {
+            // The online list: a screen mirroring the Duo display isn't in the active one, and taking the Duo
+            // display away while that screen sleeps hung WindowServer (2026-11-20: 40 s, then a forced logout).
+            let own = DisplayInfo.onlineDisplays().filter { $0 != self.nano.displayID }
+            if NanoCore.lidClosed() || own.isEmpty || own.allSatisfy({ CGDisplayIsAsleep($0) != 0 }) {
                 Log.info("Mac asleep or lid closed: keeping the Duo display for now")
                 self.nanoTeardown = nil
                 DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
