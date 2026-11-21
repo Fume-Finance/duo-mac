@@ -2,6 +2,7 @@ import AppKit
 import Carbon
 import ApplicationServices
 import IOKit.pwr_mgt
+import IOKit.ps
 
 /// Ties everything together: web server, current phone session, screen source, input and UI state.
 final class NanoCore {
@@ -415,7 +416,10 @@ final class NanoCore {
 
     /// While on, the Mac doesn't sleep by itself (the display still may), so the iPhone can reach it. main thread
     private func updateReachable() {
+        // Never with the lid closed on battery: that's a Mac in a bag, and keeping it awake there
+        // cooks it (2026-11-21). macOS's own clamshell sleep must win.
         let want = config.stayReachable && config.allowConnections && !localMode
+            && !(NanoCore.lidClosed() && !NanoCore.onACPower())
         if want && !reachHeld {
             reachHeld = IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleSystemSleep as CFString,
                                                     IOPMAssertionLevel(kIOPMAssertionLevelOn),
@@ -844,6 +848,12 @@ final class NanoCore {
         defer { IOObjectRelease(root) }
         let v = IORegistryEntryCreateCFProperty(root, "AppleClamshellState" as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue()
         return (v as? Bool) ?? false
+    }
+
+    static func onACPower() -> Bool {
+        guard let info = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
+              let type = IOPSGetProvidingPowerSourceType(info)?.takeUnretainedValue() else { return true }
+        return (type as String) == kIOPMACPowerKey
     }
 
     static func screenIsLocked() -> Bool {
@@ -1294,8 +1304,11 @@ final class NanoCore {
     /// after the idle delay, and then refuses every display change: nothing can turn it back on
     /// remotely, so the Duo display can't be set up. Keep the display "on" while the lid is closed
     /// (the built-in panel stays dark either way). main thread
+    /// Only on mains power: on battery a closed MacBook is in a bag, and must be allowed to sleep
+    /// (it overheated in one on 2026-11-21 with this held).
     private func keepDisplayOnWithLidClosed() {
-        let closed = NanoCore.lidClosed()
+        updateReachable()
+        let closed = NanoCore.lidClosed() && NanoCore.onACPower()
         if closed && lidDisplayID == 0 {
             let r = IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleDisplaySleep as CFString,
                                                 IOPMAssertionLevel(kIOPMAssertionLevelOn),
@@ -1304,6 +1317,7 @@ final class NanoCore {
         } else if !closed && lidDisplayID != 0 {
             IOPMAssertionRelease(lidDisplayID)
             lidDisplayID = 0
+            if NanoCore.lidClosed() { Log.info("Lid closed on battery: letting the Mac sleep") }
         }
     }
 
